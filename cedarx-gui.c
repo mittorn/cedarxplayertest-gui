@@ -6,14 +6,26 @@
 __disp_layer_info_t layer;
 int disp, width, height, args[4]={0,102,&layer,0};;
 FILE * pipe;
-void keyevent(char k)
+void keyevent(int k)
 {
-	fprintf(pipe,"%c",k);
+	char c;
+	if(k<127)c=k;
+	else
+	switch(k)
+	{
+		case 0xFF51:c='j';break;
+		case 0xFF53:c='l';break;
+		case 0xFF1B:c='q';break;
+	}
+	fprintf(pipe,"%c",c);
+	fprintf(stderr, "KeyEvent: %c 0x%X\n", c, k);
 	fflush(pipe);
 }
 static void * eventthread()
 {
 	Display *dis=XOpenDisplay(0);
+	Atom XWMDeleteMessage = XInternAtom(dis, "WM_DELETE_WINDOW", False);
+
 	XSetWindowAttributes  swa;
 	swa.event_mask  =  ExposureMask | ButtonMotionMask | Button1MotionMask |
 		ButtonPressMask | ButtonReleaseMask| StructureNotifyMask| KeyPressMask;
@@ -21,6 +33,8 @@ static void * eventthread()
 		height, 0, CopyFromParent, InputOutput, CopyFromParent, 
 		CWEventMask, &swa );
 	XMapWindow(dis,win);
+	XStoreName(dis,win,"CedarXPlayerTest");
+	XSetWMProtocols(dis, win, &XWMDeleteMessage, 1);
 	XFlush(dis);
 	XEvent ev;
 	while(1)
@@ -36,9 +50,19 @@ static void * eventthread()
 				ioctl(disp,DISP_CMD_LAYER_SET_PARA,args);
 				break;
 			case KeyPress:
-				keyevent(tolower(XKeycodeToKeysym(dis, ev.xkey.keycode,0)));
+				keyevent(XKeycodeToKeysym(dis, ev.xkey.keycode,0));
 				break;
 			//default: //printf("0x%X\n",ev.xkey.keycode);
+			case ClientMessage:
+				if(ev.xclient.data.l[0]== XWMDeleteMessage)keyevent('q');break;
+			case ButtonPress:
+				fprintf(stderr,"ButtonPress: %d\n",ev.xbutton.button);
+				switch(ev.xbutton.button)
+				{
+					case 1:keyevent(' ');break;
+					case 4:keyevent('j');break;
+					case 5:keyevent('l');break;
+				}
 		}
 	}
 }
