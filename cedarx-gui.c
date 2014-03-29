@@ -3,8 +3,8 @@
 #include <pthread.h>
 #include <sunxi_disp_ioctl.h>
 #include <X11/Xlib.h>
-__disp_layer_info_t layer;
-int disp, width, height, args[4]={0,102,&layer,0};;
+__disp_layer_info_t layer, layer0;
+int disp, width, height, args[4]={0,100,(int)&layer0,0};
 FILE * pipe;
 void keyevent(int k)
 {
@@ -43,10 +43,10 @@ static void * eventthread()
 		switch(ev.type)
 		{
 			case ConfigureNotify:
-				layer.scn_win.x=ev.xconfigure.x;
-				layer.scn_win.y=ev.xconfigure.y;
-				layer.scn_win.width=ev.xconfigure.width;
-				layer.scn_win.height=ev.xconfigure.height;
+				layer.scn_win.x=((int)ev.xconfigure.x)*layer0.scn_win.width/layer0.src_win.width-layer0.src_win.x+layer0.scn_win.x;
+				layer.scn_win.y=((int)ev.xconfigure.y)*layer0.scn_win.height/layer0.src_win.height-layer0.src_win.y+layer0.scn_win.y;
+				layer.scn_win.width=ev.xconfigure.width*layer0.scn_win.width/layer0.src_win.width;
+				layer.scn_win.height=ev.xconfigure.height*layer0.scn_win.height/layer0.src_win.height;
 				ioctl(disp,DISP_CMD_LAYER_SET_PARA,args);
 				break;
 			case KeyPress:
@@ -58,7 +58,7 @@ static void * eventthread()
 			case ButtonPress:
 				fprintf(stderr,"ButtonPress: %d\n",ev.xbutton.button);
 				switch(ev.xbutton.button)
-				{
+				{           
 					case 1:keyevent(' ');break;
 					case 4:keyevent('j');break;
 					case 5:keyevent('l');break;
@@ -80,6 +80,10 @@ int main(int argc, char **argv)
 	int flag=1;
 	disp=open("/dev/disp",0);
 	char *s;
+	ioctl(disp,DISP_CMD_LAYER_GET_PARA,args);
+	args[1]=102;
+	args[2]=(int)&layer;
+	if(layer0.mode!=DISP_LAYER_WORK_MODE_SCALER)layer0.src_win.width=layer0.src_win.height=layer0.scn_win.width=layer0.scn_win.height=1;
 	asprintf(&s,"/lib/ld-linux-armhf.so.3 --library-path . ./CedarXPlayerTest-1.4.1 %s", argv[1]);
 	pipe=popen(s,"w");
 	while(flag)
