@@ -14,7 +14,7 @@
 Display *dis;
 Window win;
 __disp_layer_info_t layer, layer0;
-int disp, width, height, args[4]={0,100,(int)&layer0,0}, fs=0;
+int disp, width, height, src_width=0, src_height=0, args[4]={0,100,(int)&layer0,0}, fs=0, keepaspect=1;
 FILE * cpt;
 void keyevent(int k)
 {
@@ -32,13 +32,14 @@ void keyevent(int k)
 }
 static void * eventthread()
 {
+	fprintf(stderr, "Creating %dx%d window\n", width, height);
 	dis=XOpenDisplay(0);
 	Atom XWMDeleteMessage = XInternAtom(dis, "WM_DELETE_WINDOW", False);
 	XSetWindowAttributes  swa;
 	swa.event_mask  =  ExposureMask | ButtonMotionMask | Button1MotionMask |
 		ButtonPressMask | ButtonReleaseMask| StructureNotifyMask| KeyPressMask;
-	Window win  =  XCreateWindow (dis, DefaultRootWindow(dis),0, 0, width ,
-		height, 0, CopyFromParent, InputOutput, CopyFromParent, 
+	Window win  =  XCreateWindow (dis, DefaultRootWindow(dis),0, 0, src_width,
+		src_height, 0, CopyFromParent, InputOutput, CopyFromParent, 
 		CWEventMask | CWOverrideRedirect | CWBorderPixel | CWBackPixel, &swa );
 	XStoreName(dis,win,"CedarXPlayerTest");
 	XSetWMProtocols(dis, win, &XWMDeleteMessage, 1);
@@ -64,8 +65,11 @@ static void * eventthread()
 			case ConfigureNotify:
 				width=ev.xconfigure.width;
 				height=ev.xconfigure.height;
-				if((tmp=ev.xconfigure.width*layer.src_win.height/layer.src_win.width)<ev.xconfigure.height)height=tmp;
-				else width=ev.xconfigure.height*layer.src_win.width/layer.src_win.height;
+				if(keepaspect)
+				{
+					if((tmp=ev.xconfigure.width*src_height/src_width)<ev.xconfigure.height)height=tmp;
+					else width=ev.xconfigure.height*src_width/src_height;
+				}
 				layer.scn_win.x=(float)ev.xconfigure.x*(float)layer0.scn_win.width/(float)layer0.src_win.width-layer0.src_win.x+layer0.scn_win.x+(ev.xconfigure.width-width)/2;
 				layer.scn_win.y=(float)ev.xconfigure.y*(float)layer0.scn_win.height/(float)layer0.src_win.height-layer0.src_win.y+layer0.scn_win.y+(ev.xconfigure.height-height)/2;
 				layer.scn_win.width=((int)width)*layer0.scn_win.width/layer0.src_win.width;
@@ -103,26 +107,48 @@ static void *inputthread()
 int main(int argc, char **argv)
 {
 	pthread_t thread_id;
-	int flag=1;
+	int flag=1, count=0, argi=1;
+	while(argi<argc-1)
+	{
+		if(!strcasecmp(argv[argi], "--res"))
+		{
+			argi++;
+			if(sscanf(argv[argi],"%dx%d", &src_width, &src_height)!=2)
+			{
+				fprintf(stderr, "Cannot parse --res %s.\n", argv[argi]);
+				//usage();
+				return 1;
+			}
+		}
+		else 
+		{
+			fprintf(stderr, "Cannot parse %s.\n", argv[argi]);
+			return 1;
+		}
+		argi++;
+	}
 	disp=open("/dev/disp",0);
 	char *s;
 	ioctl(disp,DISP_CMD_LAYER_GET_PARA,args);
 	if(layer0.mode!=DISP_LAYER_WORK_MODE_SCALER)layer0.src_win.width=layer0.src_win.height=layer0.scn_win.width=layer0.scn_win.height=1;
-	if(asprintf(&s,"/lib/ld-linux-armhf.so.3 --library-path . ./CedarXPlayerTest-1.4.1 %s", argv[1]) < 0)return 1;
+	if(asprintf(&s,"/lib/ld-linux-armhf.so.3 --library-path . ./CedarXPlayerTest-1.4.1 '%s'", argv[argc-1]) < 0)return 1;
 	cpt=popen(s,"w");
-	while(flag)
+	while(flag&&(count<60))
 	{
+		count++;
 		usleep(50000);
 		args[1]=102;
 		args[2]=(int)&layer;
-		if(flag)ioctl(disp,DISP_CMD_LAYER_GET_PARA,args);
+		ioctl(disp,DISP_CMD_LAYER_GET_PARA,args);
 		layer.scn_win.width=layer.src_win.width;layer.scn_win.height=layer.src_win.height;
-		if(layer.scn_win.width<4096&&layer.src_win.width<4096&&layer.scn_win.height<4096&&layer.src_win.height<4096&&layer.scn_win.width>0&&layer.src_win.width>0&&layer.scn_win.height>0&&layer.src_win.height>0&&flag)
+		if(layer.scn_win.width<4096&&layer.src_win.width<4096&&layer.scn_win.height<4096&&layer.src_win.height<4096&&layer.scn_win.width>32&&layer.src_win.width>32&&layer.scn_win.height>32&&layer.src_win.height>32&&flag)
 		{
+			//layer.mode=DISP_LAYER_WORK_MODE_INTER_BUF;
+			//ioctl(disp, DISP_CMD_LAYER_SET_PARA, args);
 			flag=0;
 			layer.ck_enable=1;
 			layer.pipe=1;
-			width=layer.src_win.width,height=layer.src_win.height;
+			if(!(src_width && src_height))src_width=layer.src_win.width,src_height=layer.src_win.height;
 			__disp_colorkey_t ck;
 			ck.ck_max.red = ck.ck_min.red = 0;
 			ck.ck_max.green = ck.ck_min.green = 1;
@@ -133,6 +159,20 @@ int main(int argc, char **argv)
 			args[1] = (int)&ck;
 			ioctl(disp, DISP_CMD_SET_COLORKEY, args);
 			args[1]=102;
+#if 0 //Show video on second screen. Very unstable and slow.
+			ioctl(disp, DISP_CMD_LAYER_RELEASE, args);
+			
+			ioctl(disp, DISP_CMD_LAYER_CLOSE, args);
+			args[0]=1;
+			args[1]=DISP_LAYER_WORK_MODE_SCALER;
+			layer.mode=DISP_LAYER_WORK_MODE_SCALER;
+			args[2]=0;
+			args[1] = ioctl(disp, DISP_CMD_LAYER_REQUEST, args);
+			args[2]=&layer;
+			ioctl(disp, DISP_CMD_LAYER_SET_PARA, args);
+
+			ioctl(disp, DISP_CMD_LAYER_OPEN, args);
+#endif
 			ioctl(disp, DISP_CMD_LAYER_BOTTOM, args);
 			pthread_create(&thread_id, 0, &eventthread, 0);
 			pthread_create(&thread_id, 0, &inputthread, 0);
