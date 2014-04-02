@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <sys/ioctl.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
 #include <pthread.h>
 #include <sunxi_disp_ioctl.h>
 #include <X11/Xlib.h>
@@ -14,24 +15,31 @@
 #ifndef CEDARXPLAYERTEST_COMMAND
 #define CEDARXPLAYERTEST_COMMAND "/lib/ld-linux-armhf.so.3 --library-path . ./CedarXPlayerTest-1.4.1"
 #endif
+#ifndef FIFO_PATH
+#define FIFO_PATH "./cedarxplayertest"
+#endif
+#ifndef PRELOAD_PATH
+#define PRELOAD_PATH "./preload.so"
+#endif
 Display *dis;
 Window win;
 struct termios oldt, newt;
 __disp_layer_info_t layer, layer0;
-int disp, width, height, src_width=0, src_height=0, args[4]={0,100,(int)&layer0,0}, fs=0, keepaspect=1;
+int disp, width, height, src_width=0, src_height=0, args[4]={0,100,(int)&layer0,0}, fs=0, keepaspect=1, handle=102;
 uint32_t bgcolor=0x000102;
 FILE * cpt;
+char *fifo_path=FIFO_PATH;
 void usage(char *binary)
 {
 	fprintf(stderr,"CedarXPlayerTest GUI\n"
-	"	# %s [options] <file>\n"
+	"	%s [options] <file>\n"
 	"Availiable options:\n"
 	"	--res <width>x<height>\n"
 	"		Set window size and video aspect ratio to <width>x<height>.\n"
 	"	--no-aspect\n"
 	"		Don't keep video aspect ratio\n"
 	"	--no-colorkey\n"
-	"		Do not enable clorkey. Video will overlap all windows.\n"
+	"		Do not enable colorkey. Video will overlap all windows.\n"
 	"	--no-rawinput\n"
 	"		Do not put console to raw mode.\n"
 	"	--crop [x<x>][y<y>][w<width>][h<height>]\n"
@@ -41,6 +49,11 @@ void usage(char *binary)
 	"		Do not redirect player output to /dev/null.\n"
 	"	--bgcolor RRGGBB\n"
 	"		Set window background and colorkey color.\n"
+	"	--screen <n>\n"
+	"		Specify disp screen number. Uses ioctl wraper to change it.\n"
+	"	--fifo-path <path>\n"
+	"		Override path to fifo file. default is " FIFO_PATH ".\n"
+	"		Used to get layer handle from preloaded lib.\n"
 	"\n",
 	binary);
 }
@@ -213,7 +226,7 @@ int main(int argc, char **argv)
 					case 'h':crop.height=atoi(argv[argi]+i);break;
 					default:if(*(argv[argi]+i-1)<'0'||*(argv[argi]+i-1)>'9')
 					{
-						fprintf(stderr,"Cannot parce --crop %s\n",argv[argi]);
+						fprintf(stderr,"Cannot parse --crop %s\n",argv[argi]);
 						usage(argv[0]);
 						return 1;
 					}
@@ -242,6 +255,34 @@ int main(int argc, char **argv)
 				return 1;
 			}
 		}
+		else
+		if(!strcasecmp(argv[argi],"--screen"))
+		{
+			argi++;
+			if(sscanf(argv[argi],"%d", &args[0])!=1)
+			{
+				fprintf(stderr, "Cannot parse --screen %s\n", argv[argi]);
+				usage(argv[0]);
+				return 1;
+			}
+		}
+		else
+		if(!strcasecmp(argv[argi],"--layer-handle")) // works only when failed to  create fifo
+		{
+			argi++;
+			if(sscanf(argv[argi],"%d", &handle)!=1)
+			{
+				fprintf(stderr, "Cannot parse --layer-handle %s\n", argv[argi]);
+				usage(argv[0]);
+				return 1;
+			}
+		}
+		else
+		if(!strcasecmp(argv[argi],"--fifo-path"))
+		{
+			argi++;
+			fifo_path=argv[argi];
+		}
 		else 
 		{
 			fprintf(stderr, "Cannot parse %s.\n", argv[argi]);
@@ -257,6 +298,12 @@ int main(int argc, char **argv)
 		return 1;
 	}
 	disp=open("/dev/disp",0);
+	mkfifo(fifo_path, S_IRWXU);
+	setenv("LD_PRELOAD", PRELOAD_PATH, 1);
+	char *scnstr;
+	asprintf(&scnstr,"%d",args[0]);
+	setenv("CEDARXPLAYERTEST_SCREEN", scnstr, 1);
+	setenv("CEDARXPLAYERTEST_FIFO", fifo_path, 1);
 	if(raw)
 	{
 		tcgetattr( STDIN_FILENO, &oldt );
@@ -269,11 +316,14 @@ int main(int argc, char **argv)
 	if(layer0.mode!=DISP_LAYER_WORK_MODE_SCALER)layer0.src_win.width=layer0.src_win.height=layer0.scn_win.width=layer0.scn_win.height=1;
 	if(asprintf(&s,"%s '%s' %s",command, argv[argc-1], postfix) < 0)return 1;
 	cpt=popen(s,"w");
+	int fifo=open(fifo_path, O_RDONLY);
+	if(fifo>0) read(fifo, &handle, 1);
+	printf("handle is %d\n", handle);
 	while(flag&&(count<60))
 	{
 		count++;
 		usleep(50000);
-		args[1]=102;
+		args[1]=handle;
 		args[2]=(int)&layer;
 		ioctl(disp,DISP_CMD_LAYER_GET_PARA,args);
 		layer.scn_win.width=layer.src_win.width;layer.scn_win.height=layer.src_win.height;
@@ -299,7 +349,7 @@ int main(int argc, char **argv)
 				args[1] = (int)&ck;
 				ioctl(disp, DISP_CMD_SET_COLORKEY, args);
 			}
-			args[1]=102;
+			args[1]=handle;
 #if 0 //Show video on second screen. Very unstable and slow.
 			ioctl(disp, DISP_CMD_LAYER_RELEASE, args);
 			
@@ -321,5 +371,6 @@ int main(int argc, char **argv)
 	}
 	wait(0);
 	tcsetattr( STDIN_FILENO, TCSANOW, &oldt );
+	remove(fifo_path);
 	return 0;
 }
