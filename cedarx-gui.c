@@ -10,12 +10,41 @@
 #include <string.h>
 #include <fcntl.h>
 #include <unistd.h>
-
+#include <termios.h>
+#ifndef CEDARXPLAYERTEST_COMMAND
+#define CEDARXPLAYERTEST_COMMAND "/lib/ld-linux-armhf.so.3 --library-path . ./CedarXPlayerTest-1.4.1"
+#endif
 Display *dis;
 Window win;
+struct termios oldt, newt;
 __disp_layer_info_t layer, layer0;
 int disp, width, height, src_width=0, src_height=0, args[4]={0,100,(int)&layer0,0}, fs=0, keepaspect=1;
+uint32_t bgcolor=0x000102;
 FILE * cpt;
+void usage(char *binary)
+{
+	fprintf(stderr,"CedarXPlayerTest GUI\n"
+	"	# %s [options] <file>\n"
+	"Availiable options:\n"
+	"	--res <width>x<height>\n"
+	"		Set window size and video aspect ratio to <width>x<height>.\n"
+	"	--no-aspect\n"
+	"		Don't keep video aspect ratio\n"
+	"	--no-colorkey\n"
+	"		Do not enable clorkey. Video will overlap all windows.\n"
+	"	--no-rawinput\n"
+	"		Do not put console to raw mode.\n"
+	"	--crop [x<x>][y<y>][w<width>][h<height>]\n"
+	"		Crop video to the given size.\n"
+	"		Example: x10y10w630h470\n"
+	"	--show-output\n"
+	"		Do not redirect player output to /dev/null.\n"
+	"	--bgcolor RRGGBB\n"
+	"		Set window background and colorkey color.\n"
+	"\n",
+	binary);
+}
+
 void keyevent(int k)
 {
 	char c=k;
@@ -30,12 +59,14 @@ void keyevent(int k)
 	fprintf(stderr, "KeyEvent: %c 0x%X\n", c, k);
 	fflush(cpt);
 }
-static void * eventthread()
+
+static void * x11thread()
 {
-	fprintf(stderr, "Creating %dx%d window\n", width, height);
+	fprintf(stderr, "Creating %dx%d window\n", src_width, src_height);
 	dis=XOpenDisplay(0);
 	Atom XWMDeleteMessage = XInternAtom(dis, "WM_DELETE_WINDOW", False);
 	XSetWindowAttributes  swa;
+	memset(&swa, 0, sizeof(swa));
 	swa.event_mask  =  ExposureMask | ButtonMotionMask | Button1MotionMask |
 		ButtonPressMask | ButtonReleaseMask| StructureNotifyMask| KeyPressMask;
 	Window win  =  XCreateWindow (dis, DefaultRootWindow(dis),0, 0, src_width,
@@ -43,7 +74,7 @@ static void * eventthread()
 		CWEventMask | CWOverrideRedirect | CWBorderPixel | CWBackPixel, &swa );
 	XStoreName(dis,win,"CedarXPlayerTest");
 	XSetWMProtocols(dis, win, &XWMDeleteMessage, 1);
-	XSetWindowBackground(dis, win, 0x000102);
+	XSetWindowBackground(dis, win, bgcolor);
 	XMapWindow(dis,win);
 	XFlush(dis);
 	XEvent ev, cev;
@@ -98,16 +129,52 @@ static void * eventthread()
 
 static void *inputthread()
 {
+	int c, esc=0;
 	while(1)
 	{
-		keyevent(getchar());
+		c=getchar();
+		switch(c)
+		{
+			case 0x1B:if(esc)esc=0,keyevent('q');else esc=1;break;
+			case 0x5B:if(esc)esc=2;break;
+			case 0x44:if(esc==2)esc=0, keyevent('j');break;
+			case 0x43:if(esc==2)esc=0, keyevent('l');break;
+			default:if(esc)esc=0;else keyevent(c);
+		}
 	}
 	return 0;
 }
+
+
+int errorhandler(Display *dpy, XErrorEvent * error)
+{
+	fprintf(stderr, "\nX11 ERROR\n");
+	fprintf(cpt,"q\nq\nq\n");
+	fflush(cpt);
+	pclose(cpt);
+	tcsetattr( STDIN_FILENO, TCSANOW, &oldt );
+	exit(2);
+}
+
+int (*XSetErrorHandler(int
+(*handler)(Display *, XErrorEvent *)))();
+
 int main(int argc, char **argv)
 {
+	XSetErrorHandler(errorhandler);
 	pthread_t thread_id;
-	int flag=1, count=0, argi=1;
+	__disp_rect_t crop;
+	memset(&crop, 0, sizeof(crop));
+	char *command=CEDARXPLAYERTEST_COMMAND;
+	char *env=getenv("CEDARXPLAYERTEST");
+	char *postfix=">/dev/null";
+	if(env)command=env;
+	int flag=1, count=0, argi=1, colorkey=1, raw=1;
+	if(argc==1)
+	{
+		usage(argv[0]);
+		return 1;
+	}
 	while(argi<argc-1)
 	{
 		if(!strcasecmp(argv[argi], "--res"))
@@ -116,22 +183,91 @@ int main(int argc, char **argv)
 			if(sscanf(argv[argi],"%dx%d", &src_width, &src_height)!=2)
 			{
 				fprintf(stderr, "Cannot parse --res %s.\n", argv[argi]);
-				//usage();
+				usage(argv[0]);
+				return 1;
+			}
+		}
+		else
+		if(!strcasecmp(argv[argi], "--no-aspect"))
+		{
+			keepaspect=0;
+		}
+		else
+		if(!strcasecmp(argv[argi], "--no-colorkey"))
+		{
+			colorkey=0;
+		}
+		else
+		if(!strcasecmp(argv[argi], "--crop"))
+		{
+			argi++;
+			int i=0;
+			do
+			{
+				i++;
+				switch(*(argv[argi]+i-1))
+				{
+					case 'x':crop.x=atoi(argv[argi]+i);break;
+					case 'y':crop.y=atoi(argv[argi]+i);break;
+					case 'w':crop.width=atoi(argv[argi]+i);break;
+					case 'h':crop.height=atoi(argv[argi]+i);break;
+					default:if(*(argv[argi]+i-1)<'0'||*(argv[argi]+i-1)>'9')
+					{
+						fprintf(stderr,"Cannot parce --crop %s\n",argv[argi]);
+						usage(argv[0]);
+						return 1;
+					}
+				}
+			}
+			while(*(argv[argi]+i));
+		}
+		else
+		if(!strcasecmp(argv[argi], "--no-rawinput"))
+		{
+			raw=0;
+		}
+		else
+		if(!strcasecmp(argv[argi], "--show-output"))
+		{
+			postfix="";
+		}
+		else
+		if(!strcasecmp(argv[argi],"--bgcolor"))
+		{
+			argi++;
+			if(sscanf(argv[argi],"%x", &bgcolor)!=1)
+			{
+				fprintf(stderr, "Cannot parse --bgcolor %s\n", argv[argi]);
+				usage(argv[0]);
 				return 1;
 			}
 		}
 		else 
 		{
 			fprintf(stderr, "Cannot parse %s.\n", argv[argi]);
+	 		usage(argv[0]);
 			return 1;
 		}
 		argi++;
 	}
+	if(argi==argc)
+	{
+		fprintf(stderr, "No filename given\n");
+		usage(argv[0]);
+		return 1;
+	}
 	disp=open("/dev/disp",0);
+	if(raw)
+	{
+		tcgetattr( STDIN_FILENO, &oldt );
+		newt = oldt;
+		newt.c_lflag &= ~( ICANON | ECHO );
+		tcsetattr( STDIN_FILENO, TCSANOW, &newt );
+	}
 	char *s;
 	ioctl(disp,DISP_CMD_LAYER_GET_PARA,args);
 	if(layer0.mode!=DISP_LAYER_WORK_MODE_SCALER)layer0.src_win.width=layer0.src_win.height=layer0.scn_win.width=layer0.scn_win.height=1;
-	if(asprintf(&s,"/lib/ld-linux-armhf.so.3 --library-path . ./CedarXPlayerTest-1.4.1 '%s'", argv[argc-1]) < 0)return 1;
+	if(asprintf(&s,"%s '%s' %s",command, argv[argc-1], postfix) < 0)return 1;
 	cpt=popen(s,"w");
 	while(flag&&(count<60))
 	{
@@ -143,21 +279,26 @@ int main(int argc, char **argv)
 		layer.scn_win.width=layer.src_win.width;layer.scn_win.height=layer.src_win.height;
 		if(layer.scn_win.width<4096&&layer.src_win.width<4096&&layer.scn_win.height<4096&&layer.src_win.height<4096&&layer.scn_win.width>32&&layer.src_win.width>32&&layer.scn_win.height>32&&layer.src_win.height>32&&flag)
 		{
-			//layer.mode=DISP_LAYER_WORK_MODE_INTER_BUF;
-			//ioctl(disp, DISP_CMD_LAYER_SET_PARA, args);
 			flag=0;
-			layer.ck_enable=1;
+			layer.ck_enable=colorkey;
 			layer.pipe=1;
+			if(crop.x)layer.src_win.x=crop.x;
+			if(crop.y)layer.src_win.y=crop.y;
+			if(crop.width)layer.src_win.width=crop.width;
+			if(crop.height)layer.src_win.height=crop.height;
 			if(!(src_width && src_height))src_width=layer.src_win.width,src_height=layer.src_win.height;
-			__disp_colorkey_t ck;
-			ck.ck_max.red = ck.ck_min.red = 0;
-			ck.ck_max.green = ck.ck_min.green = 1;
-			ck.ck_max.blue = ck.ck_min.blue = 2;
-			ck.red_match_rule = 2;
-			ck.green_match_rule = 2;
-			ck.blue_match_rule = 2;
-			args[1] = (int)&ck;
-			ioctl(disp, DISP_CMD_SET_COLORKEY, args);
+			if(colorkey)
+			{
+				__disp_colorkey_t ck;
+				ck.ck_max.red = ck.ck_min.red = (uint8_t)(bgcolor>>16);
+				ck.ck_max.green = ck.ck_min.green = (uint8_t)(bgcolor>>8);
+				ck.ck_max.blue = ck.ck_min.blue = (uint8_t)(bgcolor);
+				ck.red_match_rule = 2;
+				ck.green_match_rule = 2;
+				ck.blue_match_rule = 2;
+				args[1] = (int)&ck;
+				ioctl(disp, DISP_CMD_SET_COLORKEY, args);
+			}
 			args[1]=102;
 #if 0 //Show video on second screen. Very unstable and slow.
 			ioctl(disp, DISP_CMD_LAYER_RELEASE, args);
@@ -173,11 +314,12 @@ int main(int argc, char **argv)
 
 			ioctl(disp, DISP_CMD_LAYER_OPEN, args);
 #endif
-			ioctl(disp, DISP_CMD_LAYER_BOTTOM, args);
-			pthread_create(&thread_id, 0, &eventthread, 0);
+			if(colorkey)ioctl(disp, DISP_CMD_LAYER_BOTTOM, args);
+			pthread_create(&thread_id, 0, &x11thread, 0);
 			pthread_create(&thread_id, 0, &inputthread, 0);
 		}
 	}
 	wait(0);
+	tcsetattr( STDIN_FILENO, TCSANOW, &oldt );
 	return 0;
 }
