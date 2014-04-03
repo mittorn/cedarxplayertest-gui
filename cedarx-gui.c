@@ -12,14 +12,14 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <termios.h>
-#ifndef CEDARXPLAYERTEST_COMMAND
-#define CEDARXPLAYERTEST_COMMAND "/lib/ld-linux-armhf.so.3 --library-path . ./CedarXPlayerTest-1.4.1"
+#ifndef CPT_COMMAND
+#define CPT_COMMAND "/lib/ld-linux-armhf.so.3 --library-path . ./CedarXPlayerTest-1.4.1"
 #endif
-#ifndef FIFO_PATH
-#define FIFO_PATH "./cedarxplayertest"
+#ifndef CPT_FIFO
+#define CPT_FIFO "./cedarxplayertest"
 #endif
-#ifndef PRELOAD_PATH
-#define PRELOAD_PATH "./preload.so"
+#ifndef CPT_PRELOAD
+#define CPT_PRELOAD "./preload.so"
 #endif
 Display *dis;
 Window win;
@@ -28,7 +28,7 @@ __disp_layer_info_t layer, layer0;
 int disp, width, height, src_width=0, src_height=0, args[4]={0,100,(int)&layer0,0}, fs=0, keepaspect=1, handle=102;
 uint32_t bgcolor=0x000102;
 FILE * cpt;
-char *fifo_path=FIFO_PATH;
+char *fifo_path=CPT_FIFO;
 void usage(char *binary)
 {
 	fprintf(stderr,"CedarXPlayerTest GUI\n"
@@ -52,7 +52,7 @@ void usage(char *binary)
 	"	--screen <n>\n"
 	"		Specify disp screen number. Uses ioctl wraper to change it.\n"
 	"	--fifo-path <path>\n"
-	"		Override path to fifo file. default is " FIFO_PATH ".\n"
+	"		Override path to fifo file. default is " CPT_FIFO ".\n"
 	"		Used to get layer handle from preloaded lib.\n"
 	"\n",
 	binary);
@@ -178,8 +178,8 @@ int main(int argc, char **argv)
 	pthread_t thread_id;
 	__disp_rect_t crop;
 	memset(&crop, 0, sizeof(crop));
-	char *command=CEDARXPLAYERTEST_COMMAND;
-	char *env=getenv("CEDARXPLAYERTEST");
+	char *command=CPT_COMMAND;
+	char *env=getenv("CPT_COMMAND");
 	char *postfix=">/dev/null";
 	if(env)command=env;
 	int flag=1, count=0, argi=1, colorkey=1, raw=1;
@@ -299,11 +299,15 @@ int main(int argc, char **argv)
 	}
 	disp=open("/dev/disp",0);
 	mkfifo(fifo_path, S_IRWXU);
-	setenv("LD_PRELOAD", PRELOAD_PATH, 1);
-	char *scnstr;
-	asprintf(&scnstr,"%d",args[0]);
-	setenv("CEDARXPLAYERTEST_SCREEN", scnstr, 1);
-	setenv("CEDARXPLAYERTEST_FIFO", fifo_path, 1);
+	setenv("LD_PRELOAD", CPT_PRELOAD, 0);
+	char *scnstr=getenv("CPT_SCREEN");
+	if(scnstr)args[0]=atoi(scnstr);
+	else
+	{
+		asprintf(&scnstr,"%d",args[0]);
+		setenv("CPT_SCREEN", scnstr, 1);
+	}
+	setenv("CPT_FIFO", fifo_path, 1);
 	if(raw)
 	{
 		tcgetattr( STDIN_FILENO, &oldt );

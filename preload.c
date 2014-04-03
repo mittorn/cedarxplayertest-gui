@@ -2,6 +2,8 @@
 #include <dlfcn.h>
 #include <stdio.h>
 #include <fcntl.h>
+#include <unistd.h>
+#include <stdlib.h>
 static int (*next_ioctl)(int fd, int request, void *data) = NULL;
 int disp_fd, screen=-1;
 int  pthread_attr_setschedpolicy()
@@ -34,7 +36,7 @@ int ioctl(int fd, int request, void *data)
 	{
 		if(screen==-1)
 		{
-			char *env=getenv("CEDARXPLAYERTEST_SCREEN");
+			char *env=getenv("CPT_SCREEN");
 			if(env)screen=atoi(env);else screen=0;
 
 		}
@@ -43,7 +45,7 @@ int ioctl(int fd, int request, void *data)
 	int ret=next_ioctl(fd, request, data);
 	if(fd==disp_fd&&request==0x40)
 	{
-		char *env=getenv("CEDARXPLAYERTEST_FIFO");
+		char *env=getenv("CPT_FIFO");
 		if(env)
 		{
 			int fifo=open(env,O_RDWR);
