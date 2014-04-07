@@ -12,8 +12,7 @@ LD_LINUX ?= /lib/ld-linux-armhf.so.3
 all : cedarx-gui preload.so
 
 cedarx-gui : cedarx-gui.c
-	$(CC) -Wall $(CFLAGS) -g cedarx-gui.c -o cedarx-gui -pthread -lX11 -DCPT_COMMAND=\"$(LD_LINUX)\ --library-path\ $(LIBDIR)\ $(LIBDIR)/$(CPT_BIN)\" -DCPT_FIFO=\"$(FIFO_PATH)\"  -DCPT_PRELOAD=\"$(LIBDIR)/preload.so\"
-
+	$(CC) -Wall $(CFLAGS) -g cedarx-gui.c -o cedarx-gui -pthread -lX11 -DCPT_PATH=\"$(LIBDIR)/\" -DCPT_BIN=\"$(CPT_BIN)\" -DLD_LINUX=\"$(LD_LINUX)\"
 preload.so : preload.c
 	$(CC) -Wall $(CFLAGS) preload.c -fPIC -shared -ldl -o preload.so
 clean :

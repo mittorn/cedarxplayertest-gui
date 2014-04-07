@@ -5,7 +5,9 @@
 #include <unistd.h>
 #include <stdlib.h>
 static int (*next_ioctl)(int fd, int request, void *data) = NULL;
+static int (*next_read)(int fd, void *data, size_t nbyte) = NULL;
 int disp_fd, screen=-1;
+int fifo=-1;
 int  pthread_attr_setschedpolicy()
 {
 	return 0;
@@ -43,14 +45,6 @@ int ioctl(int fd, int request, void *data)
 		((int*)data)[0]=screen;
 	}
 	int ret=next_ioctl(fd, request, data);
-	if(fd==disp_fd&&request==0x40)
-	{
-		char *env=getenv("CPT_FIFO");
-		if(env)
-		{
-			int fifo=open(env,O_RDWR);
-			if(fifo>0)write(fifo,&ret,1);
-		}
-	}
+	if(fd==disp_fd&&request==0x40)write(100,&ret,1);
 	return ret;
 }

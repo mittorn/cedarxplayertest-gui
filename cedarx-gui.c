@@ -12,23 +12,84 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <termios.h>
-#ifndef CPT_COMMAND
-#define CPT_COMMAND "/lib/ld-linux-armhf.so.3 --library-path . ./CedarXPlayerTest-1.4.1"
+#ifndef CPT_BIN
+#define CPT_BIN "CedarXPlayerTesr-1.4.1"
 #endif
-#ifndef CPT_FIFO
-#define CPT_FIFO "./cedarxplayertest"
+#ifndef LD_LINUX
+#define LD_LINUX "/lib/ld-linux-armhf.so.3"
 #endif
-#ifndef CPT_PRELOAD
-#define CPT_PRELOAD "./preload.so"
+#ifndef CPT_PATH 
+#define CPT_PATH "./"
 #endif
 Display *dis;
 Window win;
+GC gc;
+XEvent cev;
 struct termios oldt, newt;
 __disp_layer_info_t layer, layer0;
-int disp, width, height, src_width=0, src_height=0, args[4]={0,100,(int)&layer0,0}, fs=0, keepaspect=1, handle=102;
+int disp, width, height, src_width=0, src_height=0, args[4]={0,100,(int)&layer0,0}, fs=0, keepaspect=1, handle=102, ppause=0, showbuttons=1, pipefd;
 uint32_t bgcolor=0x000102;
-FILE * cpt;
-char *fifo_path=CPT_FIFO;
+pid_t pid=0;
+void toggle_fullscreen()
+{
+	fs=!fs;
+	cev.xclient.data.l[0]  = fs;
+	XSendEvent( dis, DefaultRootWindow(dis), 0, SubstructureRedirectMask | SubstructureNotifyMask, &cev );
+	XFlush(dis);
+}
+#define marign 10
+#define bsize 50
+#define BRECT(bw); 	XDrawLine(dis, win, gc, marign + bw, height - marign - bsize, marign + bw, height - marign);\
+					XDrawLine(dis, win, gc, marign + bw, height - marign - bsize, marign + bw + bsize, height - marign - bsize);\
+					XDrawLine(dis, win, gc, marign + bsize + bw, height - marign, marign + bw, height - marign);\
+					XDrawLine(dis, win, gc, marign + bsize + bw, height - marign - bsize, marign + bsize + bw, height - marign);
+#define TRIANGLE(a, b,c,bw); 	XDrawLine(dis, win, gc, marign + bw + b, height - marign -bsize / 2 - a, marign + bw + b, height - marign - bsize / 2 + a);\
+								XDrawLine(dis, win, gc, marign + bw + b, height - marign -bsize / 2 - a, marign + bw + c, height - marign - bsize / 2);\
+								XDrawLine(dis, win, gc, marign + bw + b, height - marign -bsize / 2 + a, marign + bw + c, height - marign - bsize / 2);
+void draw_buttons()
+{
+	XClearWindow(dis, win);
+	if(showbuttons)
+	{
+		XSetLineAttributes(dis, gc, 4, LineSolid, CapRound, JoinRound);
+		XSetForeground(dis, gc, 0x000000);
+		BRECT(0);
+		if(ppause)
+		{
+			TRIANGLE(bsize / 4, bsize / 4, bsize * 3 / 4, 0);
+		}
+		else
+		{
+			XDrawLine(dis, win, gc, marign + bsize / 3, height-marign-bsize / 4, marign + bsize / 3, height - marign - bsize * 3 / 4);
+			XDrawLine(dis, win, gc, marign + bsize * 2 / 3, height-marign-bsize / 4, marign + bsize * 2 / 3, height-marign-bsize * 3 / 4); 
+		}
+		BRECT(bsize + marign);
+		TRIANGLE(bsize / 6, bsize / 2, bsize / 4, bsize + marign);
+		TRIANGLE(bsize / 6, bsize * 3 / 4, bsize / 2, bsize + marign);
+		BRECT((bsize + marign) * 2);
+		TRIANGLE(bsize / 6, bsize / 4, bsize / 2, (bsize + marign) * 2);
+		TRIANGLE(bsize / 6, bsize / 2, bsize * 3 / 4, (bsize + marign) * 2);
+		XSetLineAttributes(dis, gc, 2, LineSolid, CapRound, JoinRound);
+		XSetForeground(dis, gc, 0xFFFFFF);
+		BRECT(0);
+		if(ppause)
+		{
+			TRIANGLE(bsize / 4, bsize / 4, bsize * 3 / 4, 0);
+		}
+		else
+		{
+			XDrawLine(dis, win, gc, marign + bsize / 3, height-marign-bsize / 4, marign + bsize / 3, height - marign - bsize * 3 / 4);
+			XDrawLine(dis, win, gc, marign + bsize * 2 / 3, height-marign-bsize / 4, marign + bsize * 2 / 3, height-marign-bsize * 3 / 4); 
+		}
+		BRECT(bsize + marign);
+		TRIANGLE(bsize / 6, bsize / 2, bsize / 4, bsize + marign);
+		TRIANGLE(bsize / 6, bsize * 3 / 4, bsize / 2, bsize + marign);
+		BRECT((bsize + marign) * 2);
+		TRIANGLE(bsize / 6, bsize / 4, bsize / 2, (bsize + marign) * 2);
+		TRIANGLE(bsize / 6, bsize / 2, bsize * 3 / 4, (bsize + marign) * 2);
+	}
+	XFlush(dis);
+}
 void usage(char *binary)
 {
 	fprintf(stderr,"CedarXPlayerTest GUI\n"
@@ -51,9 +112,6 @@ void usage(char *binary)
 	"		Set window background and colorkey color.\n"
 	"	--screen <n>\n"
 	"		Specify disp screen number. Uses ioctl wraper to change it.\n"
-	"	--fifo-path <path>\n"
-	"		Override path to fifo file. default is " CPT_FIFO ".\n"
-	"		Used to get layer handle from preloaded lib.\n"
 	"\n",
 	binary);
 }
@@ -63,14 +121,14 @@ void keyevent(int k)
 	char c=k;
 	switch(k)
 	{
-		case 0x66:XFlush(dis);fs=!fs;break;
+		case 0x66:toggle_fullscreen();break;
 		case 0xFF51:c='j';break;
 		case 0xFF53:c='l';break;
 		case 0xFF1B:c='q';break;
+		case 0x20: ppause=!ppause; draw_buttons();break;
 	}
-	fprintf(cpt,"%c",c);
 	fprintf(stderr, "KeyEvent: %c 0x%X\n", c, k);
-	fflush(cpt);
+	write(pipefd, &c, 1);
 }
 
 static void * x11thread()
@@ -82,15 +140,18 @@ static void * x11thread()
 	memset(&swa, 0, sizeof(swa));
 	swa.event_mask  =  ExposureMask | ButtonMotionMask | Button1MotionMask |
 		ButtonPressMask | ButtonReleaseMask| StructureNotifyMask| KeyPressMask;
-	Window win  =  XCreateWindow (dis, DefaultRootWindow(dis),0, 0, src_width,
+	win  =  XCreateWindow (dis, DefaultRootWindow(dis),0, 0, src_width,
 		src_height, 0, CopyFromParent, InputOutput, CopyFromParent, 
 		CWEventMask | CWOverrideRedirect | CWBorderPixel | CWBackPixel, &swa );
+	gc = XCreateGC(dis, win, 0, NULL);
+	XSetForeground(dis, gc, 0xFFFFFF);
 	XStoreName(dis,win,"CedarXPlayerTest");
 	XSetWMProtocols(dis, win, &XWMDeleteMessage, 1);
 	XSetWindowBackground(dis, win, bgcolor);
 	XMapWindow(dis,win);
+	XDrawLine(dis,win, gc, 30,30, 15, 15);
 	XFlush(dis);
-	XEvent ev, cev;
+	XEvent ev;
 	memset(&cev,0,sizeof(XEvent));
 	cev.type = ClientMessage;
 	cev.xclient.type = ClientMessage;
@@ -101,6 +162,7 @@ static void * x11thread()
 	cev.xclient.data.l[0] = 0;
 	cev.xclient.data.l[1] = XInternAtom( dis, "_NET_WM_STATE_FULLSCREEN", 0);
 	int tmp;
+	Time last=0;
 	while(1)
 	{
 		XNextEvent(dis,&ev);
@@ -114,11 +176,12 @@ static void * x11thread()
 					if((tmp=ev.xconfigure.width*src_height/src_width)<ev.xconfigure.height)height=tmp;
 					else width=ev.xconfigure.height*src_width/src_height;
 				}
-				layer.scn_win.x=(float)ev.xconfigure.x*(float)layer0.scn_win.width/(float)layer0.src_win.width-layer0.src_win.x+layer0.scn_win.x+(ev.xconfigure.width-width)/2;
-				layer.scn_win.y=(float)ev.xconfigure.y*(float)layer0.scn_win.height/(float)layer0.src_win.height-layer0.src_win.y+layer0.scn_win.y+(ev.xconfigure.height-height)/2;
+				layer.scn_win.x=((float)ev.xconfigure.x+(ev.xconfigure.width-width)/2)*(float)layer0.scn_win.width/(float)layer0.src_win.width-layer0.src_win.x+layer0.scn_win.x;
+				layer.scn_win.y=((float)ev.xconfigure.y+(ev.xconfigure.height-height)/2)*(float)layer0.scn_win.height/(float)layer0.src_win.height-layer0.src_win.y+layer0.scn_win.y;
 				layer.scn_win.width=((int)width)*layer0.scn_win.width/layer0.src_win.width;
 				layer.scn_win.height=((int)height)*layer0.scn_win.height/layer0.src_win.height;
 				ioctl(disp, DISP_CMD_LAYER_SET_PARA, args);
+				draw_buttons();
 				break;
 			case KeyPress:
 				keyevent(XKeycodeToKeysym(dis, ev.xkey.keycode, 0));
@@ -127,15 +190,33 @@ static void * x11thread()
 				if(ev.xclient.data.l[0]== XWMDeleteMessage)keyevent('q');break;
 			case ButtonPress:
 				fprintf(stderr,"ButtonPress: %d\n",ev.xbutton.button);
-				switch(ev.xbutton.button)
-				{           
-					case 1:keyevent(' ');break;
-					case 4:keyevent('j');break;
-					case 5:keyevent('l');break;
+				if(!showbuttons)
+				{
+					if(ev.xbutton.y<height-bsize-marign*2)
+					{
+						switch(ev.xbutton.button)
+						{
+							case 1:if(ev.xbutton.time-last<200&&ev.xbutton.time-last>0)toggle_fullscreen();
+								else last=ev.xbutton.time;
+								keyevent(' ');break;
+							case 4:keyevent('j');break;
+							case 5:keyevent('l');break;
+						}
+					}
+					else showbuttons=1;
 				}
+				else
+				{
+					if(ev.xbutton.y<height-bsize-marign*2)showbuttons=0;
+					else
+					{
+						if(ev.xbutton.x<bsize+marign)keyevent(' ');
+						else if(ev.xbutton.x<(bsize+marign)*2)keyevent('j');
+						else if(ev.xbutton.x<(bsize+marign)*3)keyevent('l');
+					}
+				}
+				draw_buttons();
 		}
-		cev.xclient.data.l[0]  = fs;
-		XSendEvent( dis, DefaultRootWindow(dis), 0, SubstructureRedirectMask | SubstructureNotifyMask, &cev );
 	}
 	return 0;
 }
@@ -143,7 +224,7 @@ static void * x11thread()
 static void *inputthread()
 {
 	int c, esc=0;
-	while(1)
+	do
 	{
 		c=getchar();
 		switch(c)
@@ -155,6 +236,7 @@ static void *inputthread()
 			default:if(esc)esc=0;else keyevent(c);
 		}
 	}
+	while(c>0);
 	return 0;
 }
 
@@ -162,9 +244,6 @@ static void *inputthread()
 int errorhandler(Display *dpy, XErrorEvent * error)
 {
 	fprintf(stderr, "\nX11 ERROR\n");
-	fprintf(cpt,"q\nq\nq\n");
-	fflush(cpt);
-	pclose(cpt);
 	tcsetattr( STDIN_FILENO, TCSANOW, &oldt );
 	exit(2);
 }
@@ -178,11 +257,8 @@ int main(int argc, char **argv)
 	pthread_t thread_id;
 	__disp_rect_t crop;
 	memset(&crop, 0, sizeof(crop));
-	char *command=CPT_COMMAND;
-	char *env=getenv("CPT_COMMAND");
-	char *postfix=">/dev/null";
-	if(env)command=env;
-	int flag=1, count=0, argi=1, colorkey=1, raw=1;
+	int flag=1, count=0, argi=1, colorkey=1, raw=1, showoutput=0;
+	char *cpt_path=CPT_PATH, *cpt_bin=CPT_BIN, *cpt_preload, *ld_linux=LD_LINUX;
 	if(argc==1)
 	{
 		usage(argv[0]);
@@ -242,7 +318,7 @@ int main(int argc, char **argv)
 		else
 		if(!strcasecmp(argv[argi], "--show-output"))
 		{
-			postfix="";
+			showoutput=1;
 		}
 		else
 		if(!strcasecmp(argv[argi],"--bgcolor"))
@@ -277,12 +353,6 @@ int main(int argc, char **argv)
 				return 1;
 			}
 		}
-		else
-		if(!strcasecmp(argv[argi],"--fifo-path"))
-		{
-			argi++;
-			fifo_path=argv[argi];
-		}
 		else 
 		{
 			fprintf(stderr, "Cannot parse %s.\n", argv[argi]);
@@ -297,9 +367,16 @@ int main(int argc, char **argv)
 		usage(argv[0]);
 		return 1;
 	}
+	char *env;
+	if((env=getenv("CPT_PATH")))cpt_path=env;
+	if((env=getenv("LD_LINUX")))ld_linux=env;
+	if((env=getenv("CPT_BIN")))cpt_bin=env;
+	env=getenv("LD_PRELOAD");
+	if(!env)env="";
+	asprintf(&cpt_bin, "%s%s", cpt_path, cpt_bin);
+	asprintf(&cpt_preload,(*env)?"%s:%s%s":"%s%s%s",env, cpt_path, "preload.so");
 	disp=open("/dev/disp",0);
-	mkfifo(fifo_path, S_IRWXU);
-	setenv("LD_PRELOAD", CPT_PRELOAD, 0);
+	setenv("LD_PRELOAD", cpt_preload, 1);
 	char *scnstr=getenv("CPT_SCREEN");
 	if(scnstr)args[0]=atoi(scnstr);
 	else
@@ -307,7 +384,26 @@ int main(int argc, char **argv)
 		asprintf(&scnstr,"%d",args[0]);
 		setenv("CPT_SCREEN", scnstr, 1);
 	}
-	setenv("CPT_FIFO", fifo_path, 1);
+	char *s;
+	ioctl(disp,DISP_CMD_LAYER_GET_PARA,args);
+	if(layer0.mode!=DISP_LAYER_WORK_MODE_SCALER)layer0.src_win.width=layer0.src_win.height=layer0.scn_win.width=layer0.scn_win.height=1;
+	int pipefd1[2], pipefd2[2];
+	pipe(pipefd1);
+	pipe(pipefd2);
+	pid=fork();
+	if(!pid)
+	{
+		if(!showoutput)close(STDOUT_FILENO);
+		close(pipefd1[1]);
+		close(pipefd2[0]);
+		dup2(pipefd1[0], 0);
+		dup2(pipefd2[1], 100);
+		execl(ld_linux, ld_linux, "--library-path", cpt_path, cpt_bin, argv[argc-1], (char*)0);
+		exit(1);
+	}
+	close(pipefd1[0]);
+	close(pipefd2[1]);
+	pipefd=pipefd1[1];
 	if(raw)
 	{
 		tcgetattr( STDIN_FILENO, &oldt );
@@ -315,13 +411,7 @@ int main(int argc, char **argv)
 		newt.c_lflag &= ~( ICANON | ECHO );
 		tcsetattr( STDIN_FILENO, TCSANOW, &newt );
 	}
-	char *s;
-	ioctl(disp,DISP_CMD_LAYER_GET_PARA,args);
-	if(layer0.mode!=DISP_LAYER_WORK_MODE_SCALER)layer0.src_win.width=layer0.src_win.height=layer0.scn_win.width=layer0.scn_win.height=1;
-	if(asprintf(&s,"%s '%s' %s",command, argv[argc-1], postfix) < 0)return 1;
-	cpt=popen(s,"w");
-	int fifo=open(fifo_path, O_RDONLY);
-	if(fifo>0) read(fifo, &handle, 1);
+	read(pipefd2[0], &handle, 1);
 	printf("handle is %d\n", handle);
 	while(flag&&(count<60))
 	{
@@ -375,6 +465,5 @@ int main(int argc, char **argv)
 	}
 	wait(0);
 	tcsetattr( STDIN_FILENO, TCSANOW, &oldt );
-	remove(fifo_path);
 	return 0;
 }
