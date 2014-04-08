@@ -27,7 +27,7 @@ GC gc;
 XEvent cev;
 struct termios oldt, newt;
 __disp_layer_info_t layer, layer0;
-int disp, width, height, src_width=0, src_height=0, args[4]={0,100,(int)&layer0,0}, fs=0, keepaspect=1, handle=102, ppause=0, showbuttons=1, pipefd;
+int disp, width, height, src_width=0, src_height=0, args[4]={0,100,(int)&layer0,0}, fs=0, keepaspect=1, handle=102, ppause=0, showbuttons=1, pipefd, ltime, duration=-1, status=0, seek, hidetimer=20;
 uint32_t bgcolor=0x000102;
 pid_t pid=0;
 void toggle_fullscreen()
@@ -69,8 +69,18 @@ void draw_buttons()
 		BRECT((bsize + marign) * 2);
 		TRIANGLE(bsize / 6, bsize / 4, bsize / 2, (bsize + marign) * 2);
 		TRIANGLE(bsize / 6, bsize / 2, bsize * 3 / 4, (bsize + marign) * 2);
+		if(duration>0)
+		{
+			XDrawLine(dis, win, gc, 0, height-bsize-marign*3, width*ltime/duration,  height-bsize-marign*3);
+			XDrawLine(dis, win, gc, width*ltime/duration+marign*2, height-bsize-marign*3, width,  height-bsize-marign*3);
+			XDrawLine(dis, win, gc, width*ltime/duration, height-bsize-marign*2, marign*2 + width*ltime/duration, height-bsize-marign*2);
+			XDrawLine(dis, win, gc, width*ltime/duration, height-bsize-marign*4, marign*2 + width*ltime/duration, height-bsize-marign*4);
+			XDrawLine(dis, win, gc, width*ltime/duration, height-bsize-marign*2, width*ltime/duration, height-bsize-marign*4);
+			XDrawLine(dis, win, gc,marign*2+ width*ltime/duration, height-bsize-marign*4, marign*2 + width*ltime/duration, height-bsize-marign*2);
+		}
 		XSetLineAttributes(dis, gc, 2, LineSolid, CapRound, JoinRound);
-		XSetForeground(dis, gc, 0xFFFFFF);
+		if(status==5)XSetForeground(dis, gc, 0xFFFF00);
+		else XSetForeground(dis, gc, 0xFFFFFF);
 		BRECT(0);
 		if(ppause)
 		{
@@ -81,12 +91,27 @@ void draw_buttons()
 			XDrawLine(dis, win, gc, marign + bsize / 3, height-marign-bsize / 4, marign + bsize / 3, height - marign - bsize * 3 / 4);
 			XDrawLine(dis, win, gc, marign + bsize * 2 / 3, height-marign-bsize / 4, marign + bsize * 2 / 3, height-marign-bsize * 3 / 4); 
 		}
+		if(status==3)XSetForeground(dis, gc, 0xFFFF00);
+		else XSetForeground(dis, gc, 0xFFFFFF);
 		BRECT(bsize + marign);
 		TRIANGLE(bsize / 6, bsize / 2, bsize / 4, bsize + marign);
 		TRIANGLE(bsize / 6, bsize * 3 / 4, bsize / 2, bsize + marign);
+		if(status==2)XSetForeground(dis, gc, 0xFFFF00);
+		else XSetForeground(dis, gc, 0xFFFFFF);
 		BRECT((bsize + marign) * 2);
 		TRIANGLE(bsize / 6, bsize / 4, bsize / 2, (bsize + marign) * 2);
 		TRIANGLE(bsize / 6, bsize / 2, bsize * 3 / 4, (bsize + marign) * 2);
+		XSetForeground(dis, gc, 0xFFFFFF);
+		if(duration>0)
+		{
+			XDrawLine(dis, win, gc, 0, height-bsize-marign*3, width*ltime/duration,  height-bsize-marign*3);
+			XDrawLine(dis, win, gc, width*ltime/duration+marign*2, height-bsize-marign*3, width,  height-bsize-marign*3);
+			if(status==1)XSetForeground(dis, gc, 0xFFFF00);
+			XDrawLine(dis, win, gc, width*ltime/duration, height-bsize-marign*2, marign*2 + width*ltime/duration, height-bsize-marign*2);
+			XDrawLine(dis, win, gc, width*ltime/duration, height-bsize-marign*4, marign*2 + width*ltime/duration, height-bsize-marign*4);
+			XDrawLine(dis, win, gc, width*ltime/duration, height-bsize-marign*2, width*ltime/duration, height-bsize-marign*4);
+			XDrawLine(dis, win, gc,marign*2+ width*ltime/duration, height-bsize-marign*4, marign*2 + width*ltime/duration, height-bsize-marign*2);
+		}
 	}
 	XFlush(dis);
 }
@@ -121,6 +146,7 @@ void keyevent(int k)
 	char c=k;
 	switch(k)
 	{
+		case 0x68:showbuttons=!showbuttons,hidetimer=20;draw_buttons();break; 
 		case 0x66:toggle_fullscreen();break;
 		case 0xFF51:c='j';break;
 		case 0xFF53:c='l';break;
@@ -183,7 +209,7 @@ static void * x11thread()
 				ioctl(disp, DISP_CMD_LAYER_SET_PARA, args);
 				draw_buttons();
 				break;
-			case KeyPress:
+			case KeyPress:hidetimer=20;
 				keyevent(XKeycodeToKeysym(dis, ev.xkey.keycode, 0));
 				break;
 			case ClientMessage:
@@ -192,7 +218,7 @@ static void * x11thread()
 				fprintf(stderr,"ButtonPress: %d\n",ev.xbutton.button);
 				if(!showbuttons)
 				{
-					if(ev.xbutton.y<height-bsize-marign*2)
+					if(ev.xbutton.y<height-bsize-marign*4)
 					{
 						switch(ev.xbutton.button)
 						{
@@ -203,19 +229,31 @@ static void * x11thread()
 							case 5:keyevent('l');break;
 						}
 					}
-					else showbuttons=1;
+					else showbuttons=1, hidetimer=20;
 				}
 				else
 				{
-					if(ev.xbutton.y<height-bsize-marign*2)showbuttons=0;
+					if(ev.xbutton.y<height-bsize-marign*4)showbuttons=0;
 					else
 					{
-						if(ev.xbutton.x<bsize+marign)keyevent(' ');
-						else if(ev.xbutton.x<(bsize+marign)*2)keyevent('j');
-						else if(ev.xbutton.x<(bsize+marign)*3)keyevent('l');
+						if(ev.xbutton.y<height-bsize-marign*2)status=1, seek=ev.xbutton.x*duration/width;
+						else
+						{
+							if(ev.xbutton.x<bsize+marign)status=5,hidetimer=20,keyevent(' ');
+							else if(ev.xbutton.x<(bsize+marign)*2)status=3,hidetimer=20,keyevent('j');
+							else if(ev.xbutton.x<(bsize+marign)*3)status=2,hidetimer=20,keyevent('l');
+						}
 					}
 				}
 				draw_buttons();
+				break;
+			case ButtonRelease:
+				status=0;
+				draw_buttons();
+				break;
+			case MotionNotify:
+				seek=ev.xmotion.x*duration/width;
+				break;
 		}
 	}
 	return 0;
@@ -321,7 +359,7 @@ int main(int argc, char **argv)
 			showoutput=1;
 		}
 		else
-		if(!strcasecmp(argv[argi],"--bgcolor"))
+		if(!strcasecmp(argv[argi], "--bgcolor"))
 		{
 			argi++;
 			if(sscanf(argv[argi],"%x", &bgcolor)!=1)
@@ -332,7 +370,7 @@ int main(int argc, char **argv)
 			}
 		}
 		else
-		if(!strcasecmp(argv[argi],"--screen"))
+		if(!strcasecmp(argv[argi], "--screen"))
 		{
 			argi++;
 			if(sscanf(argv[argi],"%d", &args[0])!=1)
@@ -343,7 +381,7 @@ int main(int argc, char **argv)
 			}
 		}
 		else
-		if(!strcasecmp(argv[argi],"--layer-handle")) // works only when failed to  create fifo
+		if(!strcasecmp(argv[argi], "--layer-handle")) // works only when failed to  create fifo
 		{
 			argi++;
 			if(sscanf(argv[argi],"%d", &handle)!=1)
@@ -352,6 +390,12 @@ int main(int argc, char **argv)
 				usage(argv[0]);
 				return 1;
 			}
+		}
+		else
+		if(!strcasecmp(argv[argi], "--help"))
+		{
+			usage(argv[0]);
+			return 0;
 		}
 		else 
 		{
@@ -463,7 +507,30 @@ int main(int argc, char **argv)
 			pthread_create(&thread_id, 0, &inputthread, 0);
 		}
 	}
-	wait(0);
+	XInitThreads();
+	while(read(pipefd2[0], &ltime, 4)>0)
+	{
+		if(ltime==-1) read(pipefd2[0], &duration, 4);
+		if(duration>0)
+		{
+			if(status==0)hidetimer--;
+			else hidetimer=20;
+			if(status==1)
+			{
+				if((ltime-seek)/10>seek/30)keyevent('d');
+				else if((duration-seek)/10<(seek-ltime)/30)keyevent('n');
+				else if((seek>ltime&&seek-ltime>60000))keyevent('i');
+				else if((seek>ltime&&seek-ltime>5000))keyevent('l');
+				else if((seek<ltime&&seek-ltime<-5000))keyevent('j');
+			}
+			else if(status==2)keyevent('l');
+			else if(status==3)keyevent('j');
+			else if(status==4)keyevent('i');
+			if(!hidetimer)showbuttons=0;
+			draw_buttons();
+		}
+		else keyevent('k');
+	}
 	tcsetattr( STDIN_FILENO, TCSANOW, &oldt );
 	return 0;
 }
