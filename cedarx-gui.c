@@ -27,7 +27,7 @@ GC gc;
 XEvent cev;
 struct termios oldt, newt;
 __disp_layer_info_t layer, layer0;
-int disp, width, height, winwidth, winheight, src_width=0, src_height=0, args[4]={0,100,(int)&layer0,0}, fs=0, keepaspect=1, handle=102, ppause=0, showbuttons=1, pipefd, status=0, seek, hidetimer=20, bsize=50;
+int disp, width, height, winwidth, winheight, src_width=0, src_height=0, colorkey=1, args[4]={0,100,(int)&layer0,0}, fs=0, keepaspect=1, handle=102, ppause=0, showbuttons=1, pipefd, status=0, seek, hidetimer=20, bsize=50;
 long long ltime=-1, duration=0;
 uint32_t bgcolor=0x000102;
 pid_t pid=0;
@@ -225,16 +225,20 @@ static void * x11thread()
 				hidetimer=20;
 				winwidth=width=ev.xconfigure.width;
 				winheight=height=ev.xconfigure.height;
+				if(!colorkey&&showbuttons)height-=bsize+marign*5;
 				if(keepaspect)
 				{
-					if((tmp=ev.xconfigure.width*src_height/src_width)<ev.xconfigure.height)height=tmp;
-					else width=ev.xconfigure.height*src_width/src_height;
+					if((tmp=ev.xconfigure.width*src_height/src_width)<height)height=tmp;
+					else width=height*src_width/src_height;
 				}
-				layer.scn_win.x=((float)ev.xconfigure.x+(ev.xconfigure.width-width)/2)*(float)layer0.scn_win.width/(float)layer0.src_win.width-layer0.src_win.x+layer0.scn_win.x;
-				layer.scn_win.y=((float)ev.xconfigure.y+(ev.xconfigure.height-height)/2)*(float)layer0.scn_win.height/(float)layer0.src_win.height-layer0.src_win.y+layer0.scn_win.y;
-				layer.scn_win.width=((int)width)*layer0.scn_win.width/layer0.src_win.width;
-				layer.scn_win.height=((int)height)*layer0.scn_win.height/layer0.src_win.height;
-				ioctl(disp, DISP_CMD_LAYER_SET_PARA, args);
+				if(handle!=255)
+				{
+					layer.scn_win.x=((float)ev.xconfigure.x+(ev.xconfigure.width-width)/2)*(float)layer0.scn_win.width/(float)layer0.src_win.width-layer0.src_win.x+layer0.scn_win.x;
+					layer.scn_win.y=((float)ev.xconfigure.y+(ev.xconfigure.height-height-((!colorkey&&showbuttons)?(bsize+marign*4):0))/2)*(float)layer0.scn_win.height/(float)layer0.src_win.height-layer0.src_win.y+layer0.scn_win.y;
+					layer.scn_win.width=((int)width)*layer0.scn_win.width/layer0.src_win.width;
+					layer.scn_win.height=((int)height)*layer0.scn_win.height/layer0.src_win.height;
+					ioctl(disp, DISP_CMD_LAYER_SET_PARA, args);
+				}
 				if(300+marign*7>winwidth)bsize=(winwidth-marign*7)/6;else bsize=50;
 				if(bsize<15)bsize=15;
 				draw_buttons();
@@ -263,7 +267,7 @@ static void * x11thread()
 				}
 				else
 				{
-					if(ev.xbutton.y<height-bsize-marign*4)showbuttons=0;
+					if(ev.xbutton.y<height-bsize-marign*4&&handle!=255)showbuttons=0;
 					else
 					{
 						if(ev.xbutton.y<height-bsize-marign*2)
@@ -333,7 +337,7 @@ int main(int argc, char **argv)
 	pthread_t thread_id;
 	__disp_rect_t crop;
 	memset(&crop, 0, sizeof(crop));
-	int flag=1, count=0, argi=1, colorkey=1, raw=1, showoutput=0;
+	int flag=1, count=0, argi=1, raw=1, showoutput=0;
 	char *cpt_path=CPT_PATH, *cpt_bin=CPT_BIN, *cpt_preload, *ld_linux=LD_LINUX;
 	if(argc==1)
 	{
@@ -495,17 +499,15 @@ int main(int argc, char **argv)
 	}
 	read(pipefd2[0], &handle, 1);
 	printf("handle is %d\n", handle);
-	while(flag&&(count<60))
+	if(handle!=255)
 	{
-		count++;
-		usleep(50000);
+		read(pipefd2[0],&args[1],4);
+		if(args[1]!=1)exit(1);
 		args[1]=handle;
 		args[2]=(int)&layer;
 		ioctl(disp,DISP_CMD_LAYER_GET_PARA,args);
 		layer.scn_win.width=layer.src_win.width;layer.scn_win.height=layer.src_win.height;
-		if(layer.scn_win.width<4096&&layer.src_win.width<4096&&layer.scn_win.height<4096&&layer.src_win.height<4096&&layer.scn_win.width>32&&layer.src_win.width>32&&layer.scn_win.height>32&&layer.src_win.height>32&&flag)
 		{
-			flag=0;
 			layer.ck_enable=colorkey;
 			layer.pipe=1;
 			if(crop.x)layer.src_win.x=crop.x;
@@ -541,26 +543,32 @@ int main(int argc, char **argv)
 			ioctl(disp, DISP_CMD_LAYER_OPEN, args);
 #endif
 			if(colorkey)ioctl(disp, DISP_CMD_LAYER_BOTTOM, args);
-			pthread_create(&thread_id, 0, &x11thread, 0);
-			pthread_create(&thread_id, 0, &inputthread, 0);
 		}
 	}
+	else src_width=300+marign*7, src_height=marign*5+50;
+	//if(layer.scn_win.width<4096&&layer.src_win.width<4096&&layer.scn_win.height<4096&&layer.src_win.height<4096&&layer.scn_win.width>32&&layer.src_win.width>32&&layer.scn_win.height>32&&layer.src_win.height>32)
+	pthread_create(&thread_id, 0, &x11thread, 0);
+	pthread_create(&thread_id, 0, &inputthread, 0);
 	XInitThreads();
-	while(read(pipefd2[0], &ltime, 8)>0)
+	long long tmptime;
+	while(read(pipefd2[0], &tmptime, 8)>0)
 	{
 		//fprintf(stderr, "duration %lld ltime %lld\n", duration, ltime);
-		if(ltime==-1) read(pipefd2[0], &duration, 8);
+		
+		if(tmptime==-1) read(pipefd2[0], &duration, 8);
+		if(tmptime>0)ltime=tmptime;
 		if(duration>0)
 		{
-			if(status==0)hidetimer--;
+			if(status==0&&handle!=255)hidetimer--;
 			else hidetimer=20;
 			if(status==1||status==8)
 			{
-				if((ltime-seek)/10>seek/30)keyevent('d');
-				else if((duration-seek)/10<(seek-ltime)/30)keyevent('n');
-				else if((seek>ltime&&seek-ltime>60000))keyevent('i');
-				else if((seek>ltime&&seek-ltime>5000))keyevent('l');
-				else if((seek<ltime&&seek-ltime<-5000))keyevent('j');
+				if(seek>ltime&&handle!=255&&(duration-seek)*2<seek-ltime)keyevent('n');
+				else if(seek<ltime&&handle!=255&&ltime-seek>seek)ltime=0, keyevent('d');
+				else if((seek>ltime&&seek-ltime>=60000))keyevent('i');
+				else if((seek<ltime&&ltime-seek>=60000))keyevent('k');
+				else if((seek>ltime&&seek-ltime>=5000))keyevent('l');
+				else if((seek<ltime&&seek-ltime<=-5000))keyevent('j');
 				else if(status==8)status=0;
 			}
 			else if(status==2)keyevent('l');
