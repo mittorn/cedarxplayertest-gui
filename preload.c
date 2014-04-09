@@ -5,7 +5,8 @@
 #include <unistd.h>
 #include <stdlib.h>
 static int (*next_ioctl)(int fd, int request, void *data) = NULL;
-int disp_fd, screen=-1, duration, skip_printf=0, ltime=0;
+int disp_fd, screen=-1, duration, skip_printf=0;
+long long ltime=0, tmp;
 int  pthread_attr_setschedpolicy()
 {
 	return 0;
@@ -63,23 +64,27 @@ int ioctl(int fd, int request, void *data)
 	}*/
 	if(format==0x23bc8c)
 	{
-		if((*(&format+4)-ltime>=500) && (*(&format+4)-ltime<=-500 )&& *(&format+4))
+		tmp=*(&format+2);
+		//fprintf(stderr, "tmp %lld ltime %lld\n", tmp, ltime);
+		if(((tmp-ltime>500)||(ltime-tmp>500))&&tmp)
 		{
-			ltime=*(&format+4);
-			write(100,&format+4,4);
+			ltime=*(&format+2);
+			write(100,&tmp,8);
 		}
-		if(!*(&format+4))ltime=0;
+		if(!tmp)ltime=0;
 	}
 	if(format==0x23a9f0)
 	{
-		fprintf(stderr, "Duration is %d\n", (int)*(&format+2));
-		int tmp=-1;
-		write(100,&tmp,4);
-		write(100,&format+2, 4);
+		fprintf(stderr, "Duration is %d\n", *(&format+2));
+		tmp=-1;
+		write(100,&tmp, 8);
+		tmp=(int)*(&format+2);
+		write(100,&tmp, 8);
 	}
 	if(format==0x23aa80)
 	{
-		write(100, &format+1, 4);
+		tmp=(int)*(&format+1);
+		write(100, &tmp , 8);
 		//fprintf(stderr, "%s %d", format, *(&format+2));
 	}
 	//fprintf(stdout, "0x%x %s \n", format, format);

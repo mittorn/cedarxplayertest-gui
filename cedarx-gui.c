@@ -27,7 +27,8 @@ GC gc;
 XEvent cev;
 struct termios oldt, newt;
 __disp_layer_info_t layer, layer0;
-int disp, width, height, winwidth, winheight, src_width=0, src_height=0, args[4]={0,100,(int)&layer0,0}, fs=0, keepaspect=1, handle=102, ppause=0, showbuttons=1, pipefd, ltime, duration=-1, status=0, seek, hidetimer=20, bsize=50;
+int disp, width, height, winwidth, winheight, src_width=0, src_height=0, args[4]={0,100,(int)&layer0,0}, fs=0, keepaspect=1, handle=102, ppause=0, showbuttons=1, pipefd, status=0, seek, hidetimer=20, bsize=50;
+long long ltime=-1, duration=0;
 uint32_t bgcolor=0x000102;
 pid_t pid=0;
 void toggle_fullscreen()
@@ -85,7 +86,7 @@ void draw_buttons()
 			XDrawLine(dis, win, gc, winwidth*ltime/duration, winheight-bsize-marign*2, marign*2 + winwidth*ltime/duration, winheight-bsize-marign*2);
 			XDrawLine(dis, win, gc, winwidth*ltime/duration, winheight-bsize-marign*4, marign*2 + winwidth*ltime/duration, winheight-bsize-marign*4);
 			XDrawLine(dis, win, gc, winwidth*ltime/duration, winheight-bsize-marign*2, winwidth*ltime/duration, winheight-bsize-marign*4);
-			XDrawLine(dis, win, gc,marign*2+ winwidth*ltime/duration, winheight-bsize-marign*4, marign*2 + winwidth*ltime/duration, winheight-bsize-marign*2);
+			XDrawLine(dis, win, gc, marign*2+winwidth*ltime/duration, winheight-bsize-marign*4, marign*2 + winwidth*ltime/duration, winheight-bsize-marign*2);
 		}
 		XSetLineAttributes(dis, gc, 2, LineSolid, CapRound, JoinRound);
 		if(status==5)XSetForeground(dis, gc, 0xFFFF00);
@@ -129,6 +130,7 @@ void draw_buttons()
 		XSetForeground(dis, gc, 0xFFFFFF);
 		if(duration>0)
 		{
+			if(status==8)XSetForeground(dis, gc, 0xFFFF00);
 			XDrawLine(dis, win, gc, 0, winheight-bsize-marign*3, winwidth*ltime/duration,  winheight-bsize-marign*3);
 			XDrawLine(dis, win, gc, winwidth*ltime/duration+marign*2, winheight-bsize-marign*3, winwidth,  winheight-bsize-marign*3);
 			if(status==1)XSetForeground(dis, gc, 0xFFFF00);
@@ -264,7 +266,12 @@ static void * x11thread()
 					if(ev.xbutton.y<height-bsize-marign*4)showbuttons=0;
 					else
 					{
-						if(ev.xbutton.y<height-bsize-marign*2)status=1, seek=ev.xbutton.x*duration/width;
+						if(ev.xbutton.y<height-bsize-marign*2)
+						{
+							seek=ev.xbutton.x*duration/winwidth;
+							if(ev.xbutton.time-last<200&&ev.xbutton.time-last>0)status=8;
+							else last=ev.xbutton.time, status=1;
+						}
 						else
 						{
 							if(ev.xbutton.x<bsize+marign)status=5,hidetimer=20,keyevent(' ');
@@ -279,11 +286,11 @@ static void * x11thread()
 				draw_buttons();
 				break;
 			case ButtonRelease:
-				status=0;
+				if(status!=8)status=0;
 				draw_buttons();
 				break;
 			case MotionNotify:
-				seek=ev.xmotion.x*duration/width;
+				seek=ev.xmotion.x*duration/winwidth, hidetimer=20;
 				break;
 		}
 	}
@@ -539,20 +546,22 @@ int main(int argc, char **argv)
 		}
 	}
 	XInitThreads();
-	while(read(pipefd2[0], &ltime, 4)>0)
+	while(read(pipefd2[0], &ltime, 8)>0)
 	{
-		if(ltime==-1) read(pipefd2[0], &duration, 4);
+		//fprintf(stderr, "duration %lld ltime %lld\n", duration, ltime);
+		if(ltime==-1) read(pipefd2[0], &duration, 8);
 		if(duration>0)
 		{
 			if(status==0)hidetimer--;
 			else hidetimer=20;
-			if(status==1)
+			if(status==1||status==8)
 			{
 				if((ltime-seek)/10>seek/30)keyevent('d');
 				else if((duration-seek)/10<(seek-ltime)/30)keyevent('n');
 				else if((seek>ltime&&seek-ltime>60000))keyevent('i');
 				else if((seek>ltime&&seek-ltime>5000))keyevent('l');
 				else if((seek<ltime&&seek-ltime<-5000))keyevent('j');
+				else if(status==8)status=0;
 			}
 			else if(status==2)keyevent('l');
 			else if(status==3)keyevent('j');
