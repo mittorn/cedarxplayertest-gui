@@ -6,6 +6,7 @@
 #include <stdlib.h>
 static int (*next_ioctl)(int fd, int request, void *data) = NULL;
 int disp_fd=-1, screen=-1, skip_printf=0, flag=0;
+char *offset=0;
 long long ltime=0, tmp, crtime=0;
 int  pthread_attr_setschedpolicy()
 {
@@ -49,6 +50,7 @@ int ioctl(int fd, int request, void *data)
 }
  int printf (const char * format, ...)
  {
+	 if(!offset)offset=format;
 	/*char *msg;
 	if (next_ioctl == NULL) {
 		fprintf(stderr, "ioctl : wrapping ioctl\n");
@@ -64,7 +66,7 @@ int ioctl(int fd, int request, void *data)
 			fprintf(stderr, "ioctl: wrapping done\n");
 		fflush(stderr);
 	}*/
-	if(format==0x23bc8c)
+	if(format==offset-0x23ae80+0x23bc8c)
 	{
 		crtime=*(&format+2);
 		//fprintf(stderr, "tmp %lld ltime %lld\n", tmp, ltime);
@@ -75,7 +77,7 @@ int ioctl(int fd, int request, void *data)
 		}
 		if(!tmp)ltime=0;
 	}
-	if(format==0x23a9f0)
+	if(format==offset-0x23ae80+0x23a9f0)
 	{
 		fprintf(stderr, "Duration is %d\n", *(&format+2));
 		tmp=-1;
@@ -83,13 +85,13 @@ int ioctl(int fd, int request, void *data)
 		tmp=(int)*(&format+2);
 		write(100,&tmp, 8);
 	}
-	if(format==0x23aa80)
+	if(format==offset-0x23ae80+0x23aa80)
 	{
 		crtime=(int)*(&format+1);
 		write(100, &crtime , 8);
 		//fprintf(stderr, "%s %d", format, *(&format+2));
 	}
-	if(format==0x23b450&&disp_fd<0)
+	if(format==offset-0x23ae80+0x23b450&&disp_fd<0)
 	{
 		if(disp_fd==-1)disp_fd=-2,tmp=255,write(100, &tmp, 1);
 		//NEED REREQUST. pct:99 cnt:128 tp_idx:0 ap_idx:0
