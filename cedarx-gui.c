@@ -138,6 +138,11 @@ void draw_buttons()
 		XSetForeground(dis, gc, 0xFFFFFF);
 		if(duration>0)
 		{
+			char timestr[9];
+			sprintf(timestr, "%02d:%02d:%02d",(int)ltime/3600000%100, (int)(ltime/60000)%60, (int)(ltime/1000)%60);
+			XDrawString(dis, win, gc, 0, winheight-bsize-marign*3-marign/2, timestr, 8);
+			sprintf(timestr, "%02d:%02d:%02d",(int)duration/3600000%100, (int)(duration/60000)%60, (int)(duration/1000)%60);
+			XDrawString(dis, win, gc, winwidth-50, winheight-bsize-marign*3-marign/2, timestr, 8);
 			if(status==8)XSetForeground(dis, gc, 0xFFFF00);
 			XDrawLine(dis, win, gc, 0, winheight-bsize-marign*3, winwidth*ltime/duration,  winheight-bsize-marign*3);
 			XDrawLine(dis, win, gc, winwidth*ltime/duration+marign*2, winheight-bsize-marign*3, winwidth,  winheight-bsize-marign*3);
@@ -148,6 +153,7 @@ void draw_buttons()
 			XDrawLine(dis, win, gc, marign * 2 + winwidth * ltime / duration, winheight-bsize-marign*4, marign*2 + winwidth*ltime/duration, winheight-bsize-marign*2);
 		}
 	}
+	else pstatus=-1,XClearWindow(dis, win);
 	XFlush(dis);
 }
 void usage(char *binary)
