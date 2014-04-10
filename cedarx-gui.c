@@ -27,7 +27,7 @@ GC gc;
 XEvent cev;
 struct termios oldt, newt;
 __disp_layer_info_t layer, layer0;
-int disp, width, height, winwidth, winheight, src_width=0, src_height=0, colorkey=1, args[4]={0,100,(int)&layer0,0}, fs=0, keepaspect=1, handle=102, ppause=0, showbuttons=1, pipefd, status=0, seek, hidetimer=20, bsize=50;
+int disp, width, height, winwidth, winheight, src_width=0, src_height=0, colorkey=1, args[4]={0,100,(int)&layer0,0}, fs=0, keepaspect=1, handle=102, ppause=0, showbuttons=1, pipefd, status=0, seek, hidetimer=20, bsize=50, pstatus=-1;
 long long ltime=-1, duration=0;
 uint32_t bgcolor=0x000102;
 pid_t pid=0;
@@ -48,39 +48,43 @@ void toggle_fullscreen()
 								XDrawLine(dis, win, gc, marign + bw + b, winheight - marign -bsize / 2 + a, marign + bw + c, winheight - marign - bsize / 2);
 void draw_buttons()
 {
-	XClearWindow(dis, win);
 	if(showbuttons)
 	{
 		XSetLineAttributes(dis, gc, 4, LineSolid, CapRound, JoinRound);
 		XSetForeground(dis, gc, 0x000000);
-		BRECT(0);
-		if(ppause)
+		if(pstatus!=status)
 		{
-			TRIANGLE(bsize / 4, bsize / 4, bsize * 3 / 4, 0);
+			XClearArea(dis, win, 0, winheight-marign-bsize, bsize+marign, bsize+marign*2,0);
+			BRECT(0);
+			if(ppause)
+			{
+				TRIANGLE(bsize / 4, bsize / 4, bsize * 3 / 4, 0);
+			}
+			else
+			{
+				XDrawLine(dis, win, gc, marign + bsize / 3, winheight-marign-bsize / 4, marign + bsize / 3, winheight - marign - bsize * 3 / 4);
+				XDrawLine(dis, win, gc, marign + bsize * 2 / 3, winheight-marign-bsize / 4, marign + bsize * 2 / 3, winheight-marign-bsize * 3 / 4); 
+			}
+			BRECT(bsize+marign);
+			TRIANGLE(bsize / 6, bsize * 3 / 4, bsize / 4, bsize + marign);
+			XDrawLine(dis, win, gc, bsize + marign * 2 + bsize / 4, winheight - marign - bsize / 3, bsize + marign * 2 + bsize / 4, winheight - marign - bsize * 2 / 3);
+			BRECT((bsize + marign) * 2);
+			TRIANGLE(bsize / 6, bsize / 2, bsize / 4, (bsize + marign) * 2);
+			TRIANGLE(bsize / 6, bsize * 3 / 4, bsize / 2, (bsize + marign) * 2);
+			BRECT((bsize + marign) * 3);
+			TRIANGLE(bsize / 6, bsize / 4, bsize / 2, (bsize + marign) * 3);
+			TRIANGLE(bsize / 6, bsize / 2, bsize * 3 / 4, (bsize + marign) * 3);
+			BRECT((bsize+marign) * 4);
+			TRIANGLE(bsize / 6, bsize / 6, bsize / 3, (bsize + marign) * 4);
+			TRIANGLE(bsize / 6, bsize / 3, bsize / 2, (bsize + marign) * 4);
+			TRIANGLE(bsize / 6, bsize / 2, bsize * 5 / 6, (bsize + marign) * 4);
+			BRECT((bsize+marign) * 5);
+			TRIANGLE(bsize / 6, bsize / 4, bsize * 3 / 4, (bsize + marign) * 5);
+			XDrawLine(dis, win, gc, bsize * 5 + marign * 6 + bsize * 3 / 4, winheight - marign - bsize / 3, bsize * 5 + marign * 6 + bsize * 3 / 4, winheight - marign - bsize * 2 / 3);
 		}
-		else
-		{
-			XDrawLine(dis, win, gc, marign + bsize / 3, winheight-marign-bsize / 4, marign + bsize / 3, winheight - marign - bsize * 3 / 4);
-			XDrawLine(dis, win, gc, marign + bsize * 2 / 3, winheight-marign-bsize / 4, marign + bsize * 2 / 3, winheight-marign-bsize * 3 / 4); 
-		}
-		BRECT(bsize+marign);
-		TRIANGLE(bsize / 6, bsize * 3 / 4, bsize / 4, bsize + marign);
-		XDrawLine(dis, win, gc, bsize + marign * 2 + bsize / 4, winheight - marign - bsize / 3, bsize + marign * 2 + bsize / 4, winheight - marign - bsize * 2 / 3);
-		BRECT((bsize + marign) * 2);
-		TRIANGLE(bsize / 6, bsize / 2, bsize / 4, (bsize + marign) * 2);
-		TRIANGLE(bsize / 6, bsize * 3 / 4, bsize / 2, (bsize + marign) * 2);
-		BRECT((bsize + marign) * 3);
-		TRIANGLE(bsize / 6, bsize / 4, bsize / 2, (bsize + marign) * 3);
-		TRIANGLE(bsize / 6, bsize / 2, bsize * 3 / 4, (bsize + marign) * 3);
-		BRECT((bsize+marign) * 4);
-		TRIANGLE(bsize / 6, bsize / 6, bsize / 3, (bsize + marign) * 4);
-		TRIANGLE(bsize / 6, bsize / 3, bsize / 2, (bsize + marign) * 4);
-		TRIANGLE(bsize / 6, bsize / 2, bsize * 5 / 6, (bsize + marign) * 4);
-		BRECT((bsize+marign) * 5);
-		TRIANGLE(bsize / 6, bsize / 4, bsize * 3 / 4, (bsize + marign) * 5);
-		XDrawLine(dis, win, gc, bsize * 5 + marign * 6 + bsize * 3 / 4, winheight - marign - bsize / 3, bsize * 5 + marign * 6 + bsize * 3 / 4, winheight - marign - bsize * 2 / 3);
 		if(duration>0)
 		{
+			XClearArea(dis, win, 0, winheight-marign-bsize-marign*3-marign/2, winwidth, marign*3,0);
 			XDrawLine(dis, win, gc, 0, winheight-bsize-marign*3, winwidth*ltime/duration,  winheight-bsize-marign*3);
 			XDrawLine(dis, win, gc, winwidth*ltime/duration+marign*2, winheight-bsize-marign*3, winwidth,  winheight-bsize-marign*3);
 			XDrawLine(dis, win, gc, winwidth*ltime/duration, winheight-bsize-marign*2, marign*2 + winwidth*ltime/duration, winheight-bsize-marign*2);
@@ -89,44 +93,48 @@ void draw_buttons()
 			XDrawLine(dis, win, gc, marign*2+winwidth*ltime/duration, winheight-bsize-marign*4, marign*2 + winwidth*ltime/duration, winheight-bsize-marign*2);
 		}
 		XSetLineAttributes(dis, gc, 2, LineSolid, CapRound, JoinRound);
-		if(status==5)XSetForeground(dis, gc, 0xFFFF00);
-		else XSetForeground(dis, gc, 0xFFFFFF);
-		BRECT(0);
-		if(ppause)
+		if(pstatus!=status)
 		{
-			TRIANGLE(bsize / 4, bsize / 4, bsize * 3 / 4, 0);
+			if(status==5)XSetForeground(dis, gc, 0xFFFF00);
+			else XSetForeground(dis, gc, 0xFFFFFF);
+			BRECT(0);
+			if(ppause)
+			{
+				TRIANGLE(bsize / 4, bsize / 4, bsize * 3 / 4, 0);
+			}
+			else
+			{
+				XDrawLine(dis, win, gc, marign + bsize / 3, winheight-marign-bsize / 4, marign + bsize / 3, winheight - marign - bsize * 3 / 4);
+				XDrawLine(dis, win, gc, marign + bsize * 2 / 3, winheight-marign-bsize / 4, marign + bsize * 2 / 3, winheight-marign-bsize * 3 / 4); 
+			}
+			if(status==6)XSetForeground(dis, gc, 0xFFFF00);
+			else XSetForeground(dis, gc, 0xFFFFFF);
+			BRECT(bsize+marign);
+			TRIANGLE(bsize / 6, bsize * 3 / 4, bsize / 4, bsize + marign);
+			XDrawLine(dis, win, gc, bsize + marign * 2 + bsize / 4, winheight - marign - bsize / 3, bsize + marign * 2 + bsize / 4, winheight - marign - bsize * 2 / 3);
+			if(status==3)XSetForeground(dis, gc, 0xFFFF00);
+			else XSetForeground(dis, gc, 0xFFFFFF);
+			BRECT((bsize + marign) * 2);
+			TRIANGLE(bsize / 6, bsize / 2, bsize / 4, (bsize + marign) * 2);
+			TRIANGLE(bsize / 6, bsize * 3 / 4, bsize / 2, (bsize + marign) * 2);
+			if(status==2)XSetForeground(dis, gc, 0xFFFF00);
+			else XSetForeground(dis, gc, 0xFFFFFF);
+			BRECT((bsize + marign) * 3);
+			TRIANGLE(bsize / 6, bsize / 4, bsize / 2, (bsize + marign) * 3);
+			TRIANGLE(bsize / 6, bsize / 2, bsize * 3 / 4, (bsize + marign) * 3);
+			if(status==4)XSetForeground(dis, gc, 0xFFFF00);
+			else XSetForeground(dis, gc, 0xFFFFFF);
+			BRECT((bsize+marign) * 4);
+			TRIANGLE(bsize / 6, bsize / 6, bsize / 3, (bsize + marign) * 4);
+			TRIANGLE(bsize / 6, bsize / 3, bsize / 2, (bsize + marign) * 4);
+			TRIANGLE(bsize / 6, bsize / 2, bsize * 5 / 6, (bsize + marign) * 4);
+			if(status==7)XSetForeground(dis, gc, 0xFFFF00);
+			else XSetForeground(dis, gc, 0xFFFFFF);
+			BRECT((bsize+marign) * 5);
+			TRIANGLE(bsize / 6, bsize / 4, bsize * 3 / 4, (bsize + marign) * 5);
+			XDrawLine(dis, win, gc, bsize * 5 + marign * 6 + bsize * 3 / 4, winheight - marign - bsize / 3, bsize * 5 + marign * 6 + bsize * 3 / 4, winheight - marign - bsize * 2 / 3);
+			pstatus=status;
 		}
-		else
-		{
-			XDrawLine(dis, win, gc, marign + bsize / 3, winheight-marign-bsize / 4, marign + bsize / 3, winheight - marign - bsize * 3 / 4);
-			XDrawLine(dis, win, gc, marign + bsize * 2 / 3, winheight-marign-bsize / 4, marign + bsize * 2 / 3, winheight-marign-bsize * 3 / 4); 
-		}
-		if(status==6)XSetForeground(dis, gc, 0xFFFF00);
-		else XSetForeground(dis, gc, 0xFFFFFF);
-		BRECT(bsize+marign);
-		TRIANGLE(bsize / 6, bsize * 3 / 4, bsize / 4, bsize + marign);
-		XDrawLine(dis, win, gc, bsize + marign * 2 + bsize / 4, winheight - marign - bsize / 3, bsize + marign * 2 + bsize / 4, winheight - marign - bsize * 2 / 3);
-		if(status==3)XSetForeground(dis, gc, 0xFFFF00);
-		else XSetForeground(dis, gc, 0xFFFFFF);
-		BRECT((bsize + marign) * 2);
-		TRIANGLE(bsize / 6, bsize / 2, bsize / 4, (bsize + marign) * 2);
-		TRIANGLE(bsize / 6, bsize * 3 / 4, bsize / 2, (bsize + marign) * 2);
-		if(status==2)XSetForeground(dis, gc, 0xFFFF00);
-		else XSetForeground(dis, gc, 0xFFFFFF);
-		BRECT((bsize + marign) * 3);
-		TRIANGLE(bsize / 6, bsize / 4, bsize / 2, (bsize + marign) * 3);
-		TRIANGLE(bsize / 6, bsize / 2, bsize * 3 / 4, (bsize + marign) * 3);
-		if(status==4)XSetForeground(dis, gc, 0xFFFF00);
-		else XSetForeground(dis, gc, 0xFFFFFF);
-		BRECT((bsize+marign) * 4);
-		TRIANGLE(bsize / 6, bsize / 6, bsize / 3, (bsize + marign) * 4);
-		TRIANGLE(bsize / 6, bsize / 3, bsize / 2, (bsize + marign) * 4);
-		TRIANGLE(bsize / 6, bsize / 2, bsize * 5 / 6, (bsize + marign) * 4);
-		if(status==7)XSetForeground(dis, gc, 0xFFFF00);
-		else XSetForeground(dis, gc, 0xFFFFFF);
-		BRECT((bsize+marign) * 5);
-		TRIANGLE(bsize / 6, bsize / 4, bsize * 3 / 4, (bsize + marign) * 5);
-		XDrawLine(dis, win, gc, bsize * 5 + marign * 6 + bsize * 3 / 4, winheight - marign - bsize / 3, bsize * 5 + marign * 6 + bsize * 3 / 4, winheight - marign - bsize * 2 / 3);
 		XSetForeground(dis, gc, 0xFFFFFF);
 		if(duration>0)
 		{
@@ -221,8 +229,13 @@ static void * x11thread()
 		XNextEvent(dis,&ev);
 		switch(ev.type)
 		{
+			case Expose:
+				pstatus=-1;
+				draw_buttons();
+				break;
 			case ConfigureNotify:
-				hidetimer=20;
+				hidetimer=20, pstatus=-1;
+				XClearWindow(dis, win);
 				winwidth=width=ev.xconfigure.width;
 				winheight=height=ev.xconfigure.height;
 				if(!colorkey&&showbuttons)height-=bsize+marign*5;
@@ -577,7 +590,7 @@ int main(int argc, char **argv)
 			if(!hidetimer)showbuttons=0;
 			draw_buttons();
 		}
-		else keyevent('k');
+		else if(duration==0)keyevent('k');
 	}
 	tcsetattr( STDIN_FILENO, TCSANOW, &oldt );
 	return 0;
