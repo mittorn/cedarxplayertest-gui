@@ -31,6 +31,47 @@ int disp, width, height, winwidth, winheight, src_width=0, src_height=0, colorke
 long long ltime=-1, duration=0;
 uint32_t bgcolor=0x000102;
 pid_t pid=0;
+struct srt 
+{
+	long t1, t2;
+	char *lines[5];
+};
+struct srt *subtitles=0;
+int subcount=0;
+void loadsrt(FILE * srtfile)
+{
+	char buffer[255];
+	int i, h1, m1 ,s1, ms1, h2, m2, s2, ms2, srtlength=0, ret;
+	do
+	{
+		ret=fscanf(srtfile,"%d\n%02d:%02d:%02d,%03d --> %02d:%02d:%02d,%03d\n", &i, &h1, &m1, &s1, &ms1, &h2, &m2, &s2, &ms2);
+		if(ret!=9)
+		{
+			if(fgetc(srtfile)!=EOF)ret=9;
+			continue;
+		}
+		if(i>srtlength)
+		{
+			srtlength+=4;
+			subtitles=(struct srt*)realloc(subtitles, srtlength*sizeof(struct srt));
+		}
+		subtitles[i-1].t1=h1*3600000+m1*60000+s1*1000+ms1;
+		subtitles[i-1].t2=h2*3600000+m2*60000+s2*1000+ms2;
+		int j=0;
+		for(fgets(buffer, 255,srtfile);buffer[0]&&buffer[0]!='\r';j++,fgets(buffer, 255, srtfile)) asprintf(&subtitles[i-1].lines[j], "%s", buffer);
+	}
+	while(ret==9);
+	subcount=i;
+}
+char ** getsublines()
+{
+	int i;
+	for(i=0;i<subcount;i++)
+	{
+		if(subtitles[i].t1<ltime&&subtitles[i].t2>ltime)return subtitles[i].lines;
+	}
+	return 0;
+}
 void toggle_fullscreen()
 {
 	fs=!fs;
@@ -154,6 +195,13 @@ void draw_buttons()
 		}
 	}
 	else pstatus=-1,XClearWindow(dis, win);
+	if(subcount>0)
+	{
+		int i;
+		XClearArea(dis, win, 0, winheight-bsize-marign*5-50, winwidth, 50, 0);
+		char ** lines=getsublines();
+		for(i=0;i<4;i++)if(lines&&lines[i])XDrawString(dis, win,gc, 0, winheight-marign*4-bsize-50+10*i, lines[i], strlen(lines[i]));
+	}
 	XFlush(dis);
 }
 void usage(char *binary)
@@ -178,6 +226,8 @@ void usage(char *binary)
 	"		Set window background and colorkey color.\n"
 	"	--screen <n>\n"
 	"		Specify disp screen number. Uses ioctl wraper to change it.\n"
+	"	--srt <path>\n"
+	"		Load srt file. Experimental, may crash. Only 8-bit encoding.\n"
 	"\n",
 	binary);
 }
@@ -451,6 +501,12 @@ int main(int argc, char **argv)
 				usage(argv[0]);
 				return 1;
 			}
+		}
+		else
+		if(!strcasecmp(argv[argi], "--srt"))
+		{
+			argi++;
+			loadsrt(fopen(argv[argi],"r"));
 		}
 		else
 		if(!strcasecmp(argv[argi], "--help"))
