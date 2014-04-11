@@ -8,6 +8,7 @@
 #include <pthread.h>
 #include <sunxi_disp_ioctl.h>
 #include <X11/Xlib.h>
+#include <X11/Xft/Xft.h>
 #include <string.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -27,10 +28,14 @@ GC gc;
 XEvent cev;
 struct termios oldt, newt;
 __disp_layer_info_t layer, layer0;
-int disp, width, height, winwidth, winheight, src_width=0, src_height=0, colorkey=1, args[4]={0,100,(int)&layer0,0}, fs=0, keepaspect=1, handle=102, ppause=0, showbuttons=1, pipefd, status=0, seek, hidetimer=20, bsize=50, pstatus=-1;
+int disp, width, height, winwidth, winheight, src_width=0, src_height=0, colorkey=1, args[4]={0,100,(int)&layer0,0}, fs=0, keepaspect=1, handle=102, ppause=0, showbuttons=1, pipefd, status=0, seek, hidetimer=20, bsize=50, pstatus=-1, linewrap=0;
 long long ltime=-1, duration=0;
 uint32_t bgcolor=0x000102;
 pid_t pid=0;
+XftFont *font;
+XftColor xftcolor;
+XftDraw *xftdraw;
+XRenderColor xrcolor;
 struct srt 
 {
 	long t1, t2;
@@ -41,6 +46,7 @@ int subcount=0;
 void loadsrt(FILE * srtfile)
 {
 	char buffer[255];
+	//iconv_t utf8_to_utf16 = iconv_open("UTF-16LE", "UTF-8");
 	int i, h1, m1 ,s1, ms1, h2, m2, s2, ms2, srtlength=0, ret;
 	do
 	{
@@ -58,7 +64,8 @@ void loadsrt(FILE * srtfile)
 		subtitles[i-1].t1=h1*3600000+m1*60000+s1*1000+ms1;
 		subtitles[i-1].t2=h2*3600000+m2*60000+s2*1000+ms2;
 		int j=0;
-		for(fgets(buffer, 255,srtfile);buffer[0]&&buffer[0]!='\r';j++,fgets(buffer, 255, srtfile)) asprintf(&subtitles[i-1].lines[j], "%s", buffer);
+		for(fgets(buffer, 255,srtfile);buffer[0]&&buffer[0]!='\r'&&buffer[0]!='\n';j++,fgets(buffer, 255, srtfile)) asprintf(&subtitles[i-1].lines[j], "%s", buffer);
+		if(i==1)linewrap=strlen(buffer);
 	}
 	while(ret==9);
 	subcount=i;
@@ -197,10 +204,16 @@ void draw_buttons()
 	else pstatus=-1,XClearWindow(dis, win);
 	if(subcount>0)
 	{
-		int i;
+		int i, lastheight=0;
+		XGlyphInfo extents;
 		XClearArea(dis, win, 0, winheight-bsize-marign*5-50, winwidth, 50, 0);
 		char ** lines=getsublines();
-		for(i=0;i<4;i++)if(lines&&lines[i])XDrawString(dis, win,gc, 0, winheight-marign*4-bsize-50+10*i, lines[i], strlen(lines[i]));
+		for(i=0;i<4;i++)if(lines&&lines[i])
+		{
+			XftTextExtentsUtf8 (dis, font, lines[i], strlen(lines[i])-linewrap, &extents);
+			XftDrawStringUtf8(xftdraw, &xftcolor,font, winwidth/2-extents.width/2, winheight-marign*4-bsize-50+lastheight, lines[i], strlen(lines[i])-linewrap);
+			lastheight+=extents.height;
+		}
 	}
 	XFlush(dis);
 }
@@ -252,12 +265,16 @@ static void * x11thread()
 {
 	fprintf(stderr, "Creating %dx%d window\n", src_width, src_height);
 	dis=XOpenDisplay(0);
+	XInitThreads();
+			int count;
+		char *defstring, **missinglist;
+	font = XftFontOpenName(dis, 0, "");
 	Atom XWMDeleteMessage = XInternAtom(dis, "WM_DELETE_WINDOW", False);
 	XSetWindowAttributes  swa;
 	memset(&swa, 0, sizeof(swa));
 	swa.event_mask  =  ExposureMask | ButtonMotionMask | Button1MotionMask |
 		ButtonPressMask | ButtonReleaseMask| StructureNotifyMask| KeyPressMask;
-	win  =  XCreateWindow (dis, DefaultRootWindow(dis),0, 0, src_width,
+	win = XCreateWindow(dis, DefaultRootWindow(dis),0, 0, src_width,
 		src_height, 0, CopyFromParent, InputOutput, CopyFromParent, 
 		CWEventMask | CWOverrideRedirect | CWBorderPixel | CWBackPixel, &swa );
 	gc = XCreateGC(dis, win, 0, NULL);
@@ -266,7 +283,12 @@ static void * x11thread()
 	XSetWMProtocols(dis, win, &XWMDeleteMessage, 1);
 	XSetWindowBackground(dis, win, bgcolor);
 	XMapWindow(dis,win);
-	XDrawLine(dis,win, gc, 30,30, 15, 15);
+	xftdraw = XftDrawCreate(dis, win, DefaultVisual(dis, 0), DefaultColormap(dis, 0));
+	xrcolor.red  =65535;
+	xrcolor.green=65535;
+	xrcolor.blue =65535;
+	xrcolor.alpha=65535;
+	XftColorAllocValue(dis, DefaultVisual(dis ,0), DefaultColormap(dis, 0), &xrcolor, &xftcolor);
 	XFlush(dis);
 	XEvent ev;
 	memset(&cev,0,sizeof(XEvent));
