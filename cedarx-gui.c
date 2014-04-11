@@ -22,13 +22,14 @@
 #ifndef CPT_PATH 
 #define CPT_PATH "./"
 #endif
+char *fontpattern="*:pixelsize=20";
 Display *dis;
 Window win;
 GC gc;
 XEvent cev;
 struct termios oldt, newt;
 __disp_layer_info_t layer, layer0;
-int disp, width, height, winwidth, winheight, src_width=0, src_height=0, colorkey=1, args[4]={0,100,(int)&layer0,0}, fs=0, keepaspect=1, handle=102, ppause=0, showbuttons=1, pipefd, status=0, seek, hidetimer=20, bsize=50, pstatus=-1, linewrap=0;
+int disp, width, height, winwidth, winheight, src_width=0, src_height=0, colorkey=1, args[4]={0,100,(int)&layer0,0}, fs=0, keepaspect=1, handle=102, ppause=0, showbuttons=1, pipefd, status=0, seek, hidetimer=20, bsize=50, pstatus=-1, linewrap=0, subheight, subwidth;
 long long ltime=-1, duration=0;
 uint32_t bgcolor=0x000102;
 pid_t pid=0;
@@ -40,6 +41,7 @@ struct srt
 {
 	long t1, t2;
 	char *lines[5];
+	char count;
 };
 struct srt *subtitles=0;
 int subcount=0;
@@ -65,17 +67,18 @@ void loadsrt(FILE * srtfile)
 		subtitles[i-1].t2=h2*3600000+m2*60000+s2*1000+ms2;
 		int j=0;
 		for(fgets(buffer, 255,srtfile);buffer[0]&&buffer[0]!='\r'&&buffer[0]!='\n';j++,fgets(buffer, 255, srtfile)) asprintf(&subtitles[i-1].lines[j], "%s", buffer);
+		subtitles[i-1].count=j;
 		if(i==1)linewrap=strlen(buffer);
 	}
 	while(ret==9);
 	subcount=i;
 }
-char ** getsublines()
+struct srt *getsub()
 {
 	int i;
 	for(i=0;i<subcount;i++)
 	{
-		if(subtitles[i].t1<ltime&&subtitles[i].t2>ltime)return subtitles[i].lines;
+		if(subtitles[i].t1<ltime&&subtitles[i].t2>ltime)return &subtitles[i];
 	}
 	return 0;
 }
@@ -204,16 +207,19 @@ void draw_buttons()
 	else pstatus=-1,XClearWindow(dis, win);
 	if(subcount>0)
 	{
-		int i, lastheight=0;
+		if(subwidth&&subheight)XClearArea(dis, win, winwidth/2-subwidth/2, winheight-subheight-marign*4-bsize, subwidth, subheight+(!showbuttons?bsize+marign*4:0), 0);
+		int i;
+		subwidth=subheight=0;
 		XGlyphInfo extents;
-		XClearArea(dis, win, 0, winheight-bsize-marign*5-50, winwidth, 50, 0);
-		char ** lines=getsublines();
-		for(i=0;i<4;i++)if(lines&&lines[i])
+		struct srt *sub=getsub();
+		for(i=0;i<4;i++)if(sub&&sub->lines[i])
 		{
-			XftTextExtentsUtf8 (dis, font, lines[i], strlen(lines[i])-linewrap, &extents);
-			XftDrawStringUtf8(xftdraw, &xftcolor,font, winwidth/2-extents.width/2, winheight-marign*4-bsize-50+lastheight, lines[i], strlen(lines[i])-linewrap);
-			lastheight+=extents.height;
+			XftTextExtentsUtf8 (dis, font, sub->lines[i], strlen(sub->lines[i])-linewrap, &extents);
+			XftDrawStringUtf8(xftdraw, &xftcolor,font, winwidth/2-extents.width/2, winheight-(showbuttons?marign*4+bsize:0)+subheight-extents.height*sub->count, sub->lines[i], strlen(sub->lines[i])-linewrap);
+			subheight+=extents.height;
+			if(subwidth<extents.width)subwidth=extents.width;
 		}
+		subheight+=extents.height*2;
 	}
 	XFlush(dis);
 }
@@ -240,7 +246,9 @@ void usage(char *binary)
 	"	--screen <n>\n"
 	"		Specify disp screen number. Uses ioctl wraper to change it.\n"
 	"	--srt <path>\n"
-	"		Load srt file. Experimental, may crash. Only 8-bit encoding.\n"
+	"		Load srt file. Experimental, may crash. Using freetype, file must be in utf-8.\n"
+	"	--font <pattern>\n"
+	"		Xft font pattern. Default is *:pixelsize=20.\n"
 	"\n",
 	binary);
 }
@@ -268,7 +276,7 @@ static void * x11thread()
 	XInitThreads();
 			int count;
 		char *defstring, **missinglist;
-	font = XftFontOpenName(dis, 0, "");
+	font = XftFontOpenName(dis, 0, fontpattern);
 	Atom XWMDeleteMessage = XInternAtom(dis, "WM_DELETE_WINDOW", False);
 	XSetWindowAttributes  swa;
 	memset(&swa, 0, sizeof(swa));
@@ -529,6 +537,12 @@ int main(int argc, char **argv)
 		{
 			argi++;
 			loadsrt(fopen(argv[argi],"r"));
+		}
+		else
+		if(!strcasecmp(argv[argi], "--font"))
+		{
+			argi++;
+			fontpattern=argv[argi];
 		}
 		else
 		if(!strcasecmp(argv[argi], "--help"))
