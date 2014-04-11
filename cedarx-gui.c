@@ -351,7 +351,7 @@ static void * x11thread()
 				fprintf(stderr,"ButtonPress: %d\n",ev.xbutton.button);
 				if(!showbuttons)
 				{
-					if(ev.xbutton.y<height-bsize-marign*4)
+					if(ev.xbutton.y<winheight-bsize-marign*4)
 					{
 						switch(ev.xbutton.button)
 						{
@@ -366,10 +366,10 @@ static void * x11thread()
 				}
 				else
 				{
-					if(ev.xbutton.y<height-bsize-marign*4&&handle!=255)showbuttons=0;
+					if(ev.xbutton.y<winheight-bsize-marign*4&&handle!=255)showbuttons=0;
 					else
 					{
-						if(ev.xbutton.y<height-bsize-marign*2)
+						if(ev.xbutton.y<winheight-bsize-marign*2)
 						{
 							seek=ev.xbutton.x*duration/winwidth;
 							if(ev.xbutton.time-last<200&&ev.xbutton.time-last>0)status=8;
@@ -661,6 +661,7 @@ int main(int argc, char **argv)
 	pthread_create(&thread_id, 0, &x11thread, 0);
 	pthread_create(&thread_id, 0, &inputthread, 0);
 	XInitThreads();
+	sleep(1);
 	long long tmptime;
 	while(read(pipefd2[0], &tmptime, 8)>0)
 	{
