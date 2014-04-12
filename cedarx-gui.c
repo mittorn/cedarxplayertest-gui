@@ -5,7 +5,6 @@
 #include <sys/ioctl.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
-#include <pthread.h>
 #include <sunxi_disp_ioctl.h>
 #include <X11/Xlib.h>
 #include <X11/Xft/Xft.h>
@@ -48,7 +47,6 @@ int subcount=0;
 void loadsrt(FILE * srtfile)
 {
 	char buffer[255];
-	//iconv_t utf8_to_utf16 = iconv_open("UTF-16LE", "UTF-8");
 	int i, h1, m1 ,s1, ms1, h2, m2, s2, ms2, srtlength=0, ret;
 	do
 	{
@@ -269,26 +267,6 @@ void keyevent(int k)
 	write(pipefd, &c, 1);
 }
 
-static void *inputthread()
-{
-	int c, esc=0;
-	do
-	{
-		c=getchar();
-		switch(c)
-		{
-			case 0x1B:if(esc)esc=0,keyevent('q');else esc=1;break;
-			case 0x5B:if(esc)esc=2;break;
-			case 0x44:if(esc==2)esc=0, keyevent('j');break;
-			case 0x43:if(esc==2)esc=0, keyevent('l');break;
-			default:if(esc)esc=0;else keyevent(c);
-		}
-	}
-	while(c>0);
-	return 0;
-}
-
-
 int errorhandler(Display *dpy, XErrorEvent * error)
 {
 	fprintf(stderr, "\nX11 ERROR\n");
@@ -302,7 +280,6 @@ int (*XSetErrorHandler(int
 int main(int argc, char **argv)
 {
 	XSetErrorHandler(errorhandler);
-	pthread_t thread_id;
 	__disp_rect_t crop;
 	memset(&crop, 0, sizeof(crop));
 	int flag=1, argi=1, raw=1, showoutput=0;
@@ -391,21 +368,12 @@ int main(int argc, char **argv)
 			}
 		}
 		else
-		if(!strcasecmp(argv[argi], "--layer-handle")) // works only when failed to  create fifo
-		{
-			argi++;
-			if(sscanf(argv[argi],"%d", &handle)!=1)
-			{
-				fprintf(stderr, "Cannot parse --layer-handle %s\n", argv[argi]);
-				usage(argv[0]);
-				return 1;
-			}
-		}
-		else
 		if(!strcasecmp(argv[argi], "--srt"))
 		{
 			argi++;
-			loadsrt(fopen(argv[argi],"r"));
+			FILE *srtfile=fopen(argv[argi],"r");
+			if(!srtfile) fprintf(stderr, "Error loading subtitles file %s.\n", argv[argi]);
+			else loadsrt(srtfile);
 		}
 		else
 		if(!strcasecmp(argv[argi], "--font"))
@@ -508,7 +476,7 @@ int main(int argc, char **argv)
 				ioctl(disp, DISP_CMD_SET_COLORKEY, args);
 			}
 			args[1]=handle;
-#if 0 //Show video on second screen. Very unstable and slow.
+#if 0 //Show video on second screen. Very unstable and slow, but can be fixed by adding some ioctl wrappers.
 			ioctl(disp, DISP_CMD_LAYER_RELEASE, args);
 			
 			ioctl(disp, DISP_CMD_LAYER_CLOSE, args);
@@ -526,15 +494,19 @@ int main(int argc, char **argv)
 		}
 	}
 	else src_width=300+marign*7, src_height=marign*5+50;
-	//if(layer.scn_win.width<4096&&layer.src_win.width<4096&&layer.scn_win.height<4096&&layer.src_win.height<4096&&layer.scn_win.width>32&&layer.src_win.width>32&&layer.scn_win.height>32&&layer.src_win.height>32)
-	pthread_create(&thread_id, 0, &inputthread, 0);
-	XInitThreads();
 	long long tmptime;
 		fprintf(stderr, "Creating %dx%d window\n", src_width, src_height);
 	dis=XOpenDisplay(0);
 	int x11_fd=ConnectionNumber(dis);
-	XInitThreads();
-	font = XftFontOpenName(dis, 0, fontpattern);
+	if(subtitles&&subcount>0)
+	{
+		font = XftFontOpenName(dis, 0, fontpattern);
+		if(!font)
+		{
+			fprintf(stderr, "Error: Cannot load font %s!\n", fontpattern);
+			exit(1);
+		}
+	}
 	Atom XWMDeleteMessage = XInternAtom(dis, "WM_DELETE_WINDOW", False);
 	XSetWindowAttributes  swa;
 	memset(&swa, 0, sizeof(swa));
@@ -566,7 +538,7 @@ int main(int argc, char **argv)
 	cev.xclient.format = 32;
 	cev.xclient.data.l[0] = 0;
 	cev.xclient.data.l[1] = XInternAtom( dis, "_NET_WM_STATE_FULLSCREEN", 0);
-	int tmp;
+	int tmp, conchar=1, esc=0;
 	Time last=0;
 	fd_set fds;
 	int ret=1;
@@ -576,6 +548,7 @@ int main(int argc, char **argv)
 		FD_ZERO(&fds);
 		FD_SET(pipefd2[0], &fds);
 		FD_SET(x11_fd, &fds);
+		if(conchar>0)FD_SET(0, &fds);
 		select(pipefd2[0]+1, &fds, 0, 0, 0);
 		if(FD_ISSET(pipefd2[0], &fds))
 		{
@@ -603,6 +576,18 @@ int main(int argc, char **argv)
 				draw_buttons();
 			}
 			else if(duration==0)keyevent('k');
+		}
+		else if(FD_ISSET(0, &fds)&&conchar>0)
+		{
+			conchar=getchar();
+			switch(conchar)
+			{
+				case 0x1B:if(esc)esc=0,keyevent('q');else esc=1;break;
+				case 0x5B:if(esc)esc=2;break;
+				case 0x44:if(esc==2)esc=0, keyevent('j');break;
+				case 0x43:if(esc==2)esc=0, keyevent('l');break;
+				default:if(esc)esc=0;else keyevent(conchar);
+			}
 		}
 		while(XPending(dis))
 		{

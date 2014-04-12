@@ -12,7 +12,7 @@ LD_LINUX ?= /lib/ld-linux-armhf.so.3
 all : cedarx-gui preload.so
 
 cedarx-gui : cedarx-gui.c
-	$(CC) -Wall $(CFLAGS) -g cedarx-gui.c -o cedarx-gui -pthread -lX11 -lXft `pkg-config --cflags freetype2` -DCPT_PATH=\"$(LIBDIR)/\" -DCPT_BIN=\"$(CPT_BIN)\" -DLD_LINUX=\"$(LD_LINUX)\"
+	$(CC) -Wall $(CFLAGS) -g cedarx-gui.c -o cedarx-gui -lX11 -lXft `pkg-config --cflags freetype2` -DCPT_PATH=\"$(LIBDIR)/\" -DCPT_BIN=\"$(CPT_BIN)\" -DLD_LINUX=\"$(LD_LINUX)\"
 preload.so : preload.c
 	$(CC) -Wall $(CFLAGS) preload.c -fPIC -shared -ldl -o preload.so
 clean :
