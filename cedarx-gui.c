@@ -269,137 +269,6 @@ void keyevent(int k)
 	write(pipefd, &c, 1);
 }
 
-static void * x11thread()
-{
-	fprintf(stderr, "Creating %dx%d window\n", src_width, src_height);
-	dis=XOpenDisplay(0);
-	XInitThreads();
-			int count;
-		char *defstring, **missinglist;
-	font = XftFontOpenName(dis, 0, fontpattern);
-	Atom XWMDeleteMessage = XInternAtom(dis, "WM_DELETE_WINDOW", False);
-	XSetWindowAttributes  swa;
-	memset(&swa, 0, sizeof(swa));
-	swa.event_mask  =  ExposureMask | ButtonMotionMask | Button1MotionMask |
-		ButtonPressMask | ButtonReleaseMask| StructureNotifyMask| KeyPressMask;
-	win = XCreateWindow(dis, DefaultRootWindow(dis),0, 0, src_width,
-		src_height, 0, CopyFromParent, InputOutput, CopyFromParent, 
-		CWEventMask | CWOverrideRedirect | CWBorderPixel | CWBackPixel, &swa );
-	gc = XCreateGC(dis, win, 0, NULL);
-	XSetForeground(dis, gc, 0xFFFFFF);
-	XStoreName(dis,win,"CedarXPlayerTest");
-	XSetWMProtocols(dis, win, &XWMDeleteMessage, 1);
-	XSetWindowBackground(dis, win, bgcolor);
-	XMapWindow(dis,win);
-	xftdraw = XftDrawCreate(dis, win, DefaultVisual(dis, 0), DefaultColormap(dis, 0));
-	xrcolor.red  =65535;
-	xrcolor.green=65535;
-	xrcolor.blue =65535;
-	xrcolor.alpha=65535;
-	XftColorAllocValue(dis, DefaultVisual(dis ,0), DefaultColormap(dis, 0), &xrcolor, &xftcolor);
-	XFlush(dis);
-	XEvent ev;
-	memset(&cev,0,sizeof(XEvent));
-	cev.type = ClientMessage;
-	cev.xclient.type = ClientMessage;
-	cev.xclient.send_event = 1;
-	cev.xclient.window = win;
-	cev.xclient.message_type = XInternAtom( dis, "_NET_WM_STATE", 0);
-	cev.xclient.format = 32;
-	cev.xclient.data.l[0] = 0;
-	cev.xclient.data.l[1] = XInternAtom( dis, "_NET_WM_STATE_FULLSCREEN", 0);
-	int tmp;
-	Time last=0;
-	while(1)
-	{
-		XNextEvent(dis,&ev);
-		switch(ev.type)
-		{
-			case Expose:
-				pstatus=-1;
-				draw_buttons();
-				break;
-			case ConfigureNotify:
-				hidetimer=20, pstatus=-1;
-				XClearWindow(dis, win);
-				winwidth=width=ev.xconfigure.width;
-				winheight=height=ev.xconfigure.height;
-				if(!colorkey&&showbuttons)height-=bsize+marign*5;
-				if(keepaspect)
-				{
-					if((tmp=ev.xconfigure.width*src_height/src_width)<height)height=tmp;
-					else width=height*src_width/src_height;
-				}
-				if(handle!=255)
-				{
-					layer.scn_win.x=((float)ev.xconfigure.x+(ev.xconfigure.width-width)/2)*(float)layer0.scn_win.width/(float)layer0.src_win.width-layer0.src_win.x+layer0.scn_win.x;
-					layer.scn_win.y=((float)ev.xconfigure.y+(ev.xconfigure.height-height-((!colorkey&&showbuttons)?(bsize+marign*4):0))/2)*(float)layer0.scn_win.height/(float)layer0.src_win.height-layer0.src_win.y+layer0.scn_win.y;
-					layer.scn_win.width=((int)width)*layer0.scn_win.width/layer0.src_win.width;
-					layer.scn_win.height=((int)height)*layer0.scn_win.height/layer0.src_win.height;
-					ioctl(disp, DISP_CMD_LAYER_SET_PARA, args);
-				}
-				if(300+marign*7>winwidth)bsize=(winwidth-marign*7)/6;else bsize=50;
-				if(bsize<15)bsize=15;
-				draw_buttons();
-				break;
-			case KeyPress:hidetimer=20;
-				keyevent(XKeycodeToKeysym(dis, ev.xkey.keycode, 0));
-				break;
-			case ClientMessage:
-				if(ev.xclient.data.l[0]== XWMDeleteMessage)keyevent('q');break;
-			case ButtonPress:
-				fprintf(stderr,"ButtonPress: %d\n",ev.xbutton.button);
-				if(!showbuttons)
-				{
-					if(ev.xbutton.y<winheight-bsize-marign*4)
-					{
-						switch(ev.xbutton.button)
-						{
-							case 1:if(ev.xbutton.time-last<200&&ev.xbutton.time-last>0)toggle_fullscreen();
-								else last=ev.xbutton.time;
-								keyevent(' ');break;
-							case 4:keyevent('j');break;
-							case 5:keyevent('l');break;
-						}
-					}
-					else showbuttons=1, hidetimer=20;
-				}
-				else
-				{
-					if(ev.xbutton.y<winheight-bsize-marign*4&&handle!=255)showbuttons=0;
-					else
-					{
-						if(ev.xbutton.y<winheight-bsize-marign*2)
-						{
-							seek=ev.xbutton.x*duration/winwidth;
-							if(ev.xbutton.time-last<200&&ev.xbutton.time-last>0)status=8;
-							else last=ev.xbutton.time, status=1;
-						}
-						else
-						{
-							if(ev.xbutton.x<bsize+marign)status=5,hidetimer=20,keyevent(' ');
-							else if(ev.xbutton.x<(bsize+marign)*2)status=6,hidetimer=20,keyevent('d');
-							else if(ev.xbutton.x<(bsize+marign)*3)status=3,hidetimer=20,keyevent('j');
-							else if(ev.xbutton.x<(bsize+marign)*4)status=2,hidetimer=20,keyevent('l');
-							else if(ev.xbutton.x<(bsize+marign)*5)status=4,hidetimer=20,keyevent('i');
-							else if(ev.xbutton.x<(bsize+marign)*6)status=7,hidetimer=20,keyevent('n');
-						}
-					}
-				}
-				draw_buttons();
-				break;
-			case ButtonRelease:
-				if(status!=8)status=0;
-				draw_buttons();
-				break;
-			case MotionNotify:
-				seek=ev.xmotion.x*duration/winwidth, hidetimer=20;
-				break;
-		}
-	}
-	return 0;
-}
-
 static void *inputthread()
 {
 	int c, esc=0;
@@ -436,7 +305,7 @@ int main(int argc, char **argv)
 	pthread_t thread_id;
 	__disp_rect_t crop;
 	memset(&crop, 0, sizeof(crop));
-	int flag=1, count=0, argi=1, raw=1, showoutput=0;
+	int flag=1, argi=1, raw=1, showoutput=0;
 	char *cpt_path=CPT_PATH, *cpt_bin=CPT_BIN, *cpt_preload, *ld_linux=LD_LINUX;
 	if(argc==1)
 	{
@@ -658,38 +527,170 @@ int main(int argc, char **argv)
 	}
 	else src_width=300+marign*7, src_height=marign*5+50;
 	//if(layer.scn_win.width<4096&&layer.src_win.width<4096&&layer.scn_win.height<4096&&layer.src_win.height<4096&&layer.scn_win.width>32&&layer.src_win.width>32&&layer.scn_win.height>32&&layer.src_win.height>32)
-	pthread_create(&thread_id, 0, &x11thread, 0);
 	pthread_create(&thread_id, 0, &inputthread, 0);
 	XInitThreads();
-	sleep(1);
 	long long tmptime;
-	while(read(pipefd2[0], &tmptime, 8)>0)
+		fprintf(stderr, "Creating %dx%d window\n", src_width, src_height);
+	dis=XOpenDisplay(0);
+	int x11_fd=ConnectionNumber(dis);
+	XInitThreads();
+	font = XftFontOpenName(dis, 0, fontpattern);
+	Atom XWMDeleteMessage = XInternAtom(dis, "WM_DELETE_WINDOW", False);
+	XSetWindowAttributes  swa;
+	memset(&swa, 0, sizeof(swa));
+	swa.event_mask  =  ExposureMask | ButtonMotionMask | Button1MotionMask |
+		ButtonPressMask | ButtonReleaseMask| StructureNotifyMask| KeyPressMask;
+	win = XCreateWindow(dis, DefaultRootWindow(dis),0, 0, src_width,
+		src_height, 0, CopyFromParent, InputOutput, CopyFromParent, 
+		CWEventMask | CWOverrideRedirect | CWBorderPixel | CWBackPixel, &swa );
+	gc = XCreateGC(dis, win, 0, NULL);
+	XSetForeground(dis, gc, 0xFFFFFF);
+	XStoreName(dis,win,"CedarXPlayerTest");
+	XSetWMProtocols(dis, win, &XWMDeleteMessage, 1);
+	XSetWindowBackground(dis, win, bgcolor);
+	XMapWindow(dis,win);
+	xftdraw = XftDrawCreate(dis, win, DefaultVisual(dis, 0), DefaultColormap(dis, 0));
+	xrcolor.red  =65535;
+	xrcolor.green=65535;
+	xrcolor.blue =65535;
+	xrcolor.alpha=65535;
+	XftColorAllocValue(dis, DefaultVisual(dis ,0), DefaultColormap(dis, 0), &xrcolor, &xftcolor);
+	XFlush(dis);
+	XEvent ev;
+	memset(&cev,0,sizeof(XEvent));
+	cev.type = ClientMessage;
+	cev.xclient.type = ClientMessage;
+	cev.xclient.send_event = 1;
+	cev.xclient.window = win;
+	cev.xclient.message_type = XInternAtom( dis, "_NET_WM_STATE", 0);
+	cev.xclient.format = 32;
+	cev.xclient.data.l[0] = 0;
+	cev.xclient.data.l[1] = XInternAtom( dis, "_NET_WM_STATE_FULLSCREEN", 0);
+	int tmp;
+	Time last=0;
+	fd_set fds;
+	int ret=1;
+	XFlush(dis);
+	while(ret>0)
 	{
-		//fprintf(stderr, "duration %lld ltime %lld\n", duration, ltime);
-		
-		if(tmptime==-1) read(pipefd2[0], &duration, 8);
-		if(tmptime>0)ltime=tmptime;
-		if(duration>0)
+		FD_ZERO(&fds);
+		FD_SET(pipefd2[0], &fds);
+		FD_SET(x11_fd, &fds);
+		select(pipefd2[0]+1, &fds, 0, 0, 0);
+		if(FD_ISSET(pipefd2[0], &fds))
 		{
-			if(status==0&&handle!=255)hidetimer--;
-			else hidetimer=20;
-			if(status==1||status==8)
+			ret=read(pipefd2[0], &tmptime, 8);
+			if(tmptime==-1) read(pipefd2[0], &duration, 8);
+			if(tmptime>0)ltime=tmptime;
+			if(duration>0)
 			{
-				if(seek>ltime&&handle!=255&&(duration-seek)*2<seek-ltime)keyevent('n');
-				else if(seek<ltime&&handle!=255&&ltime-seek>seek)ltime=0, keyevent('d');
-				else if((seek>ltime&&seek-ltime>=60000))keyevent('i');
-				else if((seek<ltime&&ltime-seek>=60000))keyevent('k');
-				else if((seek>ltime&&seek-ltime>=5000))keyevent('l');
-				else if((seek<ltime&&seek-ltime<=-5000))keyevent('j');
-				else if(status==8)status=0;
+				if(status==0&&handle!=255)hidetimer--;
+				else hidetimer=20;
+				if(status==1||status==8)
+				{
+					if(seek>ltime&&handle!=255&&(duration-seek)*2<seek-ltime)keyevent('n');
+					else if(seek<ltime&&handle!=255&&ltime-seek>seek)ltime=0, keyevent('d');
+					else if((seek>ltime&&seek-ltime>=60000))keyevent('i');
+					else if((seek<ltime&&ltime-seek>=60000))keyevent('k');
+					else if((seek>ltime&&seek-ltime>=5000))keyevent('l');
+					else if((seek<ltime&&seek-ltime<=-5000))keyevent('j');
+					else if(status==8)status=0;
+				}
+				else if(status==2)keyevent('l');
+				else if(status==3)keyevent('j');
+				else if(status==4)keyevent('i');
+				if(!hidetimer)showbuttons=0;
+				draw_buttons();
 			}
-			else if(status==2)keyevent('l');
-			else if(status==3)keyevent('j');
-			else if(status==4)keyevent('i');
-			if(!hidetimer)showbuttons=0;
-			draw_buttons();
+			else if(duration==0)keyevent('k');
 		}
-		else if(duration==0)keyevent('k');
+		while(XPending(dis))
+		{
+			XNextEvent(dis,&ev);
+			switch(ev.type)
+			{
+				case Expose:
+					pstatus=-1;
+					draw_buttons();
+					break;
+				case ConfigureNotify:
+					hidetimer=20, pstatus=-1;
+					XClearWindow(dis, win);
+					winwidth=width=ev.xconfigure.width;
+					winheight=height=ev.xconfigure.height;
+					if(!colorkey&&showbuttons)height-=bsize+marign*5;
+					if(keepaspect)
+					{
+						if((tmp=ev.xconfigure.width*src_height/src_width)<height)height=tmp;
+						else width=height*src_width/src_height;
+					}
+					if(handle!=255)
+					{
+						layer.scn_win.x=((float)ev.xconfigure.x+(ev.xconfigure.width-width)/2)*(float)layer0.scn_win.width/(float)layer0.src_win.width-layer0.src_win.x+layer0.scn_win.x;
+						layer.scn_win.y=((float)ev.xconfigure.y+(ev.xconfigure.height-height-((!colorkey&&showbuttons)?(bsize+marign*4):0))/2)*(float)layer0.scn_win.height/(float)layer0.src_win.height-layer0.src_win.y+layer0.scn_win.y;
+						layer.scn_win.width=((int)width)*layer0.scn_win.width/layer0.src_win.width;
+						layer.scn_win.height=((int)height)*layer0.scn_win.height/layer0.src_win.height;
+						ioctl(disp, DISP_CMD_LAYER_SET_PARA, args);
+					}
+					if(300+marign*7>winwidth)bsize=(winwidth-marign*7)/6;else bsize=50;
+					if(bsize<15)bsize=15;
+					draw_buttons();
+					break;
+				case KeyPress:hidetimer=20;
+					keyevent(XKeycodeToKeysym(dis, ev.xkey.keycode, 0));
+					break;
+				case ClientMessage:
+					if(ev.xclient.data.l[0]== XWMDeleteMessage)keyevent('q');break;
+				case ButtonPress:
+					fprintf(stderr,"ButtonPress: %d\n",ev.xbutton.button);
+					if(!showbuttons)
+					{
+						if(ev.xbutton.y<winheight-bsize-marign*4)
+						{
+							switch(ev.xbutton.button)
+							{
+								case 1:if(ev.xbutton.time-last<200&&ev.xbutton.time-last>0)toggle_fullscreen();
+									else last=ev.xbutton.time;
+									keyevent(' ');break;
+								case 4:keyevent('j');break;
+								case 5:keyevent('l');break;
+							}
+						}
+						else showbuttons=1, hidetimer=20;
+					}
+					else
+					{
+						if(ev.xbutton.y<winheight-bsize-marign*4&&handle!=255)showbuttons=0;
+						else
+						{
+							if(ev.xbutton.y<winheight-bsize-marign*2)
+							{
+								seek=ev.xbutton.x*duration/winwidth;
+								if(ev.xbutton.time-last<200&&ev.xbutton.time-last>0)status=8;
+								else last=ev.xbutton.time, status=1;
+							}
+							else
+							{
+								if(ev.xbutton.x<bsize+marign)status=5,hidetimer=20,keyevent(' ');
+								else if(ev.xbutton.x<(bsize+marign)*2)status=6,hidetimer=20,keyevent('d');
+								else if(ev.xbutton.x<(bsize+marign)*3)status=3,hidetimer=20,keyevent('j');
+								else if(ev.xbutton.x<(bsize+marign)*4)status=2,hidetimer=20,keyevent('l');
+								else if(ev.xbutton.x<(bsize+marign)*5)status=4,hidetimer=20,keyevent('i');
+								else if(ev.xbutton.x<(bsize+marign)*6)status=7,hidetimer=20,keyevent('n');
+							}
+						}
+					}
+					draw_buttons();
+					break;
+				case ButtonRelease:
+					if(status!=8)status=0;
+					draw_buttons();
+					break;
+				case MotionNotify:
+					seek=ev.xmotion.x*duration/winwidth, hidetimer=20;
+					break;
+			}
+		}
 	}
 	tcsetattr( STDIN_FILENO, TCSANOW, &oldt );
 	return 0;
