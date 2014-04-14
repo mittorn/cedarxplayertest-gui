@@ -511,7 +511,7 @@ int main(int argc, char **argv)
 			if(colorkey)ioctl(disp, DISP_CMD_LAYER_BOTTOM, args);
 		}
 	}
-	else src_width=300+marign*7, src_height=marign*5+50;
+	else src_width=350+marign*8, src_height=marign*5+50;
 	long long tmptime;
 		fprintf(stderr, "Creating %dx%d window\n", src_width, src_height);
 	dis=XOpenDisplay(0);
@@ -636,7 +636,7 @@ int main(int argc, char **argv)
 						layer.scn_win.height=((int)height)*layer0.scn_win.height/layer0.src_win.height;
 						ioctl(disp, DISP_CMD_LAYER_SET_PARA, args);
 					}
-					if(300+marign*7>winwidth)bsize=(winwidth-marign*7)/6;else bsize=50;
+					if(350+marign*8>winwidth)bsize=(winwidth-marign*8)/7;else bsize=50;
 					if(bsize<15)bsize=15;
 					draw_buttons();
 					break;
